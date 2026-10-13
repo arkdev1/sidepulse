@@ -33,7 +33,7 @@ def package_bytes(product='pro', version='1.1.0', *, nested=True, tamper=False):
     return output.getvalue()
 
 
-class FirmwareTests(unittest.TestCase):
+class FirmwareCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -60,8 +60,10 @@ class FirmwareTests(unittest.TestCase):
         return path
 
     def upgrade(self, package, *args):
-        return sidepulse_main(['firmware', 'upgrade', '--device', str(self.device), '--file', str(package), *args])
+        return sidepulse_main(['firmware', 'upgrade', '--device', str(self.device), '--file', str(package), '--yes', *args])
 
+
+class FirmwareTests(FirmwareCase):
     def test_version_reports_both_models_and_json(self):
         self.make_device('dot', '1.1.0')
         with patch.dict('os.environ', {'SIDEPULSE_MOUNT_ROOTS': str(self.root)}):
@@ -176,28 +178,28 @@ class FirmwareTests(unittest.TestCase):
         sums = f'{hashlib.sha256(data).hexdigest()}  sidepulse-dot-1.1.0-ota.zip\n'.encode()
         pro_only = f'{"0" * 64}  sidepulse-pro-1.2.0-ota.zip\n'.encode()
         with patch.object(firmware, 'published_versions', return_value=['1.2.0', '1.1.0']), patch.object(firmware, 'download', side_effect=[pro_only, sums, data]):
-            self.assertEqual(firmware.load_package('dot', None, None).version, '1.1.0')
+            self.assertEqual(firmware.load_package('dot', None, None, online=True).version, '1.1.0')
 
     def test_requested_version_never_falls_back_to_another_release(self):
         with patch.object(firmware, 'download', return_value=b'') as download:
             with self.assertRaises(firmware.FirmwareError):
-                firmware.load_package('dot', '1.2.0', None)
+                firmware.load_package('dot', '1.2.0', None, online=True)
         self.assertEqual(download.call_count, 1)
 
     def test_remote_package_is_verified_against_outer_checksum(self):
         data = package_bytes()
         sums = f'{hashlib.sha256(data).hexdigest()}  sidepulse-pro-1.1.0-ota.zip\n'.encode()
         with patch.object(firmware, 'download', side_effect=[sums, data]) as download:
-            package = firmware.load_package('pro', '1.1', None)
+            package = firmware.load_package('pro', '1.1', None, online=True)
         self.assertEqual(package.version, '1.1.0')
         self.assertIn('/v1.1.0/SHA256SUMS.txt', download.call_args_list[0].args[0])
         with patch.object(firmware, 'download', side_effect=[sums, data + b'corruption']):
             with self.assertRaises(firmware.FirmwareError):
-                firmware.load_package('pro', '1.1.0', None)
+                firmware.load_package('pro', '1.1.0', None, online=True)
 
     def test_network_failure_and_invalid_zip_have_friendly_errors(self):
         with patch.object(firmware.urllib.request, 'urlopen', side_effect=OSError('offline')):
-            self.assertEqual(sidepulse_main(['firmware', 'upgrade', '--device', str(self.device)]), 1)
+            self.assertEqual(sidepulse_main(['firmware', 'upgrade', '--device', str(self.device), '--online']), 1)
         self.assertIn('--file', self.stderr.getvalue())
         with self.assertRaises(firmware.FirmwareError):
             firmware.read_package(b'not a zip', 'sidepulse-pro-1.1.0-ota.zip')
@@ -210,8 +212,57 @@ class FirmwareTests(unittest.TestCase):
     def test_invalid_version_does_not_download(self):
         with patch.object(firmware, 'download') as download:
             with self.assertRaises(firmware.FirmwareError):
-                firmware.load_package('pro', '../other', None)
+                firmware.load_package('pro', '../other', None, online=True)
             download.assert_not_called()
+
+
+class FirmwareConfirmationTests(FirmwareCase):
+    def run_upgrade(self, *args, tty=True, answer=None):
+        package = self.make_package()
+        stdin = patch('sys.stdin').start()
+        stdin.isatty.return_value = tty
+        prompt = patch('builtins.input', return_value=answer).start()
+        result = sidepulse_main(['firmware', 'upgrade', '--device', str(self.device), '--file', str(package), *args])
+        return result, prompt
+
+    def written(self):
+        return (self.device / 'FIRMWARE.BIN').exists()
+
+    def test_without_terminal_or_yes_nothing_is_written(self):
+        result, prompt = self.run_upgrade(tty=False)
+        self.assertEqual(result, 1)
+        prompt.assert_not_called()
+        self.assertFalse(self.written())
+        self.assertIn('--yes', self.stderr.getvalue())
+
+    def test_wrong_answer_cancels(self):
+        for answer in ('', 'y', 'yes', '1.1'):
+            with self.subTest(answer=answer):
+                result, _ = self.run_upgrade(answer=answer)
+                self.assertEqual(result, 1)
+                self.assertFalse(self.written())
+
+    def test_typed_version_installs(self):
+        result, prompt = self.run_upgrade(answer=' 1.1.0 ')
+        self.assertEqual(result, 0)
+        self.assertIn('1.1.0', prompt.call_args.args[0])
+        self.assertEqual((self.device / 'FIRMWARE.BIN').read_bytes(), b'encrypted firmware payload')
+
+    def test_warning_is_shown_on_dry_run_and_names_the_package(self):
+        result, prompt = self.run_upgrade('--dry-run')
+        self.assertEqual(result, 0)
+        prompt.assert_not_called()
+        output = self.stdout.getvalue()
+        for text in ('WARNING', '1.0.5 -> 1.1.0', 'local file', 'encrypted', 'ioreg'):
+            self.assertIn(text, output)
+        self.assertFalse(self.written())
+
+    def test_yes_does_not_bypass_pinning(self):
+        patch.object(firmware, 'package_is_pinned', return_value=False).start()
+        result, _ = self.run_upgrade('--yes')
+        self.assertEqual(result, 1)
+        self.assertIn('allow-unpinned', self.stderr.getvalue())
+        self.assertFalse(self.written())
 
 
 REPO_FIRMWARE = Path(__file__).resolve().parents[1] / 'firmware'
@@ -244,4 +295,24 @@ class FirmwarePinningTests(unittest.TestCase):
         sums = f'{hashlib.sha256(data).hexdigest()}  sidepulse-pro-1.1.0-ota.zip\n'.encode()
         with patch.object(firmware, 'download', side_effect=[sums, data]):
             with self.assertRaises(firmware.FirmwareError):
-                firmware.load_package('pro', '1.1.0', None)
+                firmware.load_package('pro', '1.1.0', None, online=True)
+
+    def test_bundled_packages_are_the_repository_packages(self):
+        for product in ('dot', 'pro'):
+            bundled = firmware.bundled_packages(product)
+            repo = {path.parent.name[1:]: path.read_bytes() for path in REPO_FIRMWARE.glob(f'v*/sidepulse-{product}-*.zip')}
+            self.assertEqual({version: entry.read_bytes() for version, entry in bundled.items()}, repo)
+
+    def test_default_source_is_newest_bundled_without_network(self):
+        with patch.object(firmware, 'download') as download:
+            self.assertEqual(firmware.load_package('dot', None, None).version, '1.1.14')
+            self.assertEqual(firmware.load_package('dot', '1.1.0', None).version, '1.1.0')
+            package = firmware.load_package('pro', None, None)
+            download.assert_not_called()
+        self.assertEqual(package.version, '1.1.0')
+        self.assertIn('bundled', package.source)
+        self.assertTrue(firmware.package_is_pinned_digest(package.sha256))
+
+    def test_missing_bundled_version_is_reported(self):
+        with self.assertRaisesRegex(firmware.FirmwareError, 'not bundled.*bundled: 1.1.0'):
+            firmware.load_package('pro', '1.2.0', None)

@@ -13,6 +13,7 @@ import urllib.request
 import zipfile
 import zlib
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path
 
 from .device_writer import discover_devices, sync_directory
@@ -36,6 +37,11 @@ PINNED_PACKAGE_SHA256 = {
 }
 
 
+# The pinned ZIPs ship inside the installed package (resources/firmware is a
+# link to the repository's firmware/ directory), so upgrades work offline.
+BUNDLED_FIRMWARE = "firmware"
+
+
 class FirmwareError(RuntimeError):
     pass
 
@@ -57,6 +63,8 @@ class FirmwarePackage:
     product: str
     version: str
     payload: bytes
+    source: str = ""
+    sha256: str = ""
 
 
 def normalize_version(value: str) -> str:
@@ -189,8 +197,12 @@ def read_package(data: bytes, filename: str) -> FirmwarePackage:
     return FirmwarePackage(product, version, contents["FIRMWARE.BIN"])
 
 
+def package_is_pinned_digest(digest: str) -> bool:
+    return digest in PINNED_PACKAGE_SHA256.values()
+
+
 def package_is_pinned(data: bytes) -> bool:
-    return hashlib.sha256(data).hexdigest() in PINNED_PACKAGE_SHA256.values()
+    return package_is_pinned_digest(hashlib.sha256(data).hexdigest())
 
 
 def require_pinned(data: bytes, name: str, allow_unpinned: bool) -> None:
@@ -202,19 +214,65 @@ def require_pinned(data: bytes, name: str, allow_unpinned: bool) -> None:
     )
 
 
+def bundled_packages(product: str) -> dict[str, object]:
+    """Reviewed OTA ZIPs shipped with this build, by version."""
+    root = files("sidepulse.resources") / BUNDLED_FIRMWARE
+    found = {}
+    pattern = re.compile(rf"sidepulse-{product}-(\d+\.\d+\.\d+)-ota\.zip")
+    try:
+        releases = [entry for entry in root.iterdir() if entry.is_dir()]
+    except OSError:
+        return found
+    for release in releases:
+        for entry in release.iterdir():
+            match = pattern.fullmatch(entry.name)
+            if match:
+                found[match[1]] = entry
+    return found
+
+
+def checked_package(data: bytes, name: str, source: str, allow_unpinned: bool) -> FirmwarePackage:
+    require_pinned(data, name, allow_unpinned)
+    package = read_package(data, name)
+    return FirmwarePackage(
+        package.product,
+        package.version,
+        package.payload,
+        source=source,
+        sha256=hashlib.sha256(data).hexdigest(),
+    )
+
+
 def load_package(
     product: str,
     version: str | None,
     path: Path | None,
     *,
     allow_unpinned: bool = False,
+    online: bool = False,
 ) -> FirmwarePackage:
     if path is not None:
         path = path.expanduser()
         with path.open("rb") as stream:
             data = stream.read(MAX_PACKAGE_BYTES + 1)
-        require_pinned(data, path.name, allow_unpinned)
-        return read_package(data, path.name)
+        return checked_package(data, path.name, f"local file {path}", allow_unpinned)
+    if not online:
+        bundled = bundled_packages(product)
+        if version:
+            release = normalize_version(version)
+            if release not in bundled:
+                available = ", ".join(sorted(bundled, key=version_key)) or "none"
+                raise FirmwareError(
+                    f"Firmware {release} for {PRODUCT_NAMES[product]} is not bundled with this build "
+                    f"(bundled: {available}). Use --file or --online."
+                )
+        elif bundled:
+            release = max(bundled, key=version_key)
+        else:
+            raise FirmwareError(f"No {PRODUCT_NAMES[product]} firmware is bundled with this build. Use --file or --online.")
+        entry = bundled[release]
+        data = entry.read_bytes()
+        return checked_package(data, entry.name, "bundled with this SidePulse build", allow_unpinned)
     releases = [normalize_version(version)] if version else published_versions()
     for release in releases:
         name = f"sidepulse-{product}-{release}-ota.zip"
@@ -224,8 +282,7 @@ def load_package(
             continue
         data = download(f"{base}/{name}")
         verify_checksum(data, checksums[name], name)
-        require_pinned(data, name, allow_unpinned)
-        return read_package(data, name)
+        return checked_package(data, name, f"downloaded from {base}", allow_unpinned)
     requested = f" for {normalize_version(version)}" if version else ""
     raise FirmwareError(f"No published {PRODUCT_NAMES[product]} firmware package found{requested}.")
 
@@ -268,6 +325,44 @@ def cmd_firmware_version(args: argparse.Namespace) -> int:
     return 0
 
 
+def print_upgrade_warning(device: FirmwareDevice, package: FirmwarePackage) -> None:
+    pinned = "yes" if package_is_pinned_digest(package.sha256) else "NO (--allow-unpinned)"
+    lines = [
+        "",
+        "WARNING: firmware upgrade",
+        f"  Device:   {device.name} at {device.root}, serial {device.serial}",
+        f"  Upgrade:  {device.version} -> {package.version}",
+        f"  Source:   {package.source}",
+        f"  SHA-256:  {package.sha256}  (pinned: {pinned})",
+        "",
+        "  - The firmware image is encrypted and cannot be audited. The checksum only",
+        "    proves these are the bytes reviewed in this repository, not what they do.",
+        "  - The CLI cannot roll back (downgrades are refused). An interrupted transfer",
+        "    can leave the device unusable: keep it connected for at least 10 seconds.",
+        "  - Afterwards run `sidepulse firmware version`. For the Dot, also check that",
+        "    its UsbDeviceSignature still ends in 080650 (a single mass-storage",
+        "    interface, no keyboard/HID):",
+        "    ioreg -r -c IOUSBHostDevice -l -w0 | grep -E 'USB Product Name|UsbDeviceSignature'",
+        "",
+    ]
+    print("\n".join(lines), flush=True)
+
+
+def confirm_upgrade(package: FirmwarePackage) -> bool:
+    """Ask the user to type the target version; never assume consent without a terminal."""
+    if not sys.stdin.isatty():
+        print(
+            "SidePulse firmware upgrade needs confirmation: run it in a terminal, or pass --yes.",
+            file=sys.stderr,
+        )
+        return False
+    try:
+        answer = input(f"Type the target version ({package.version}) to install it, anything else cancels: ")
+    except EOFError:
+        return False
+    return answer.strip() == package.version
+
+
 def cmd_firmware_upgrade(args: argparse.Namespace) -> int:
     try:
         devices = find_devices(args.device)
@@ -281,6 +376,7 @@ def cmd_firmware_upgrade(args: argparse.Namespace) -> int:
             args.release_version,
             args.file,
             allow_unpinned=args.allow_unpinned,
+            online=args.online,
         )
         if package.product != device.product:
             raise FirmwareError(f"This ZIP is for {PRODUCT_NAMES[package.product]}, but the device is {device.name}.")
@@ -294,9 +390,13 @@ def cmd_firmware_upgrade(args: argparse.Namespace) -> int:
             return 0
         if current is not None and current > target:
             raise FirmwareError(f"Firmware {package.version} is older than installed version {device.version}; downgrade refused.")
+        print_upgrade_warning(device, package)
         if args.dry_run:
             print(f"Would upgrade {device.name} from {device.version} to {package.version}. Package verified; no files written.")
             return 0
+        if not args.yes and not confirm_upgrade(package):
+            print("Firmware upgrade cancelled; nothing was written.", file=sys.stderr)
+            return 1
         print(f"Sending firmware {package.version}. Keep the device connected.", flush=True)
         write_firmware(device, package)
         print(
@@ -317,12 +417,21 @@ def add_firmware_parser(subparsers: argparse._SubParsersAction) -> None:
     version.add_argument("--device", type=Path, help="Mounted SidePulse drive. Default: all detected devices.")
     version.add_argument("--json", action="store_true", help="Print device versions as JSON.")
     version.set_defaults(func=cmd_firmware_version)
-    upgrade = commands.add_parser("upgrade", help="Install the latest published firmware for a connected device.")
+    upgrade = commands.add_parser(
+        "upgrade",
+        help="Install the newest firmware bundled with this build (reviewed and pinned) on a connected device.",
+    )
     upgrade.add_argument("--device", type=Path, help="Mounted SidePulse drive. Required when multiple devices are connected.")
     source = upgrade.add_mutually_exclusive_group()
+    upgrade.add_argument(
+        "--online",
+        action="store_true",
+        help="Look up releases on GitHub instead of the bundled packages (needs network access).",
+    )
     source.add_argument("--version", dest="release_version", help="Install a specific release, such as 1.1.0.")
     source.add_argument("--file", type=Path, help="Install a local customer OTA ZIP.")
-    upgrade.add_argument("--dry-run", action="store_true", help="Download and verify the package without writing to the device.")
+    upgrade.add_argument("--dry-run", action="store_true", help="Verify the package and show the warning without writing to the device.")
+    upgrade.add_argument("--yes", action="store_true", help="Skip the typed confirmation (for scripts).")
     upgrade.add_argument(
         "--allow-unpinned",
         action="store_true",

@@ -79,36 +79,49 @@ Show the firmware version of connected SidePulse devices:
 sidepulse firmware version
 ```
 
-Upgrade a connected device to the latest published firmware for its model:
+Upgrade a connected device to the newest firmware bundled with this build:
 
 ```sh
-sidepulse firmware upgrade
 sidepulse firmware upgrade --dry-run
+sidepulse firmware upgrade
 ```
 
-The CLI downloads firmware from this repository on GitHub and verifies the ZIP
-and its contents before writing to the device. `--dry-run` downloads and checks
-the package without writing it. With multiple devices connected, select one
+The OTA ZIPs in [`firmware/`](firmware/README.md) ship inside the installed
+package, so upgrades work offline. Before writing, the CLI shows a warning with
+the device, the version change, the package source and its SHA-256, and asks you
+to type the target version; anything else cancels. `--dry-run` verifies the
+package and shows the warning without writing. Without a terminal the upgrade is
+refused unless you pass `--yes`. With multiple devices connected, select one
 using `--device /Volumes/SidePulse` or `--device /Volumes/PulseDot` (use the actual
 mount path on your computer).
 
-Choose a specific version or install a downloaded ZIP:
+Choose a specific bundled version, install a downloaded ZIP, or look up
+releases on GitHub:
 
 ```sh
 sidepulse firmware upgrade --version 1.1.0
 sidepulse firmware upgrade --file firmware/v1.1.0/sidepulse-pro-1.1.0-ota.zip
+sidepulse firmware upgrade --online
 ```
 
-Use the ZIP for your model from the [firmware downloads](firmware/README.md).
-Local ZIPs work offline. The CLI rejects packages for the wrong model and older
-versions, and skips a version that is already installed. Copy-based upgrades
-require a writable device drive.
+The CLI rejects packages for the wrong model and older versions, and skips a
+version that is already installed. Copy-based upgrades require a writable
+device drive.
 
 Only packages whose SHA-256 is pinned in `PINNED_PACKAGE_SHA256`
 (`src/sidepulse/firmware.py`, kept in sync with `firmware/v*/SHA256SUMS.txt`)
-are installed, whether downloaded or local; `--allow-unpinned` overrides this.
-Downloads are also subject to local-only mode (see `security.json`), so the
-offline `--file` route is the default way to upgrade.
+are installed, whatever their source; `--allow-unpinned` overrides this, and
+`--yes` does not. `--online` is also subject to local-only mode (see
+`security.json`).
+
+The firmware images are encrypted, so their contents cannot be reviewed: the
+checksum proves you install the bytes reviewed in this repository, not what they
+do. After upgrading a Dot, check that it still enumerates as a single USB
+mass-storage interface (`UsbDeviceSignature` ending in `080650`, no HID):
+
+```sh
+ioreg -r -c IOUSBHostDevice -l -w0 | grep -E 'USB Product Name|UsbDeviceSignature'
+```
 
 After the transfer, leave the device connected for at least 10 seconds, then
 reconnect it and run `sidepulse firmware version` to confirm the installed
