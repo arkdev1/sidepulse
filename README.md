@@ -104,6 +104,12 @@ Local ZIPs work offline. The CLI rejects packages for the wrong model and older
 versions, and skips a version that is already installed. Copy-based upgrades
 require a writable device drive.
 
+Only packages whose SHA-256 is pinned in `PINNED_PACKAGE_SHA256`
+(`src/sidepulse/firmware.py`, kept in sync with `firmware/v*/SHA256SUMS.txt`)
+are installed, whether downloaded or local; `--allow-unpinned` overrides this.
+Downloads are also subject to local-only mode (see `security.json`), so the
+offline `--file` route is the default way to upgrade.
+
 After the transfer, leave the device connected for at least 10 seconds, then
 reconnect it and run `sidepulse firmware version` to confirm the installed
 version. Reconnecting avoids a cached status file. Use `sidepulse firmware

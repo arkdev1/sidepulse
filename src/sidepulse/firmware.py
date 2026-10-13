@@ -25,6 +25,16 @@ MAX_PACKAGE_BYTES = 4 * 1024 * 1024
 PRODUCT_NAMES = {"dot": "SidePulse Dot", "pro": "SidePulse Pro"}
 PACKAGE_FILES = {"FIRMWARE.BIN", "README.txt", "RELEASE_NOTES.txt", "SHA256SUMS.txt"}
 
+# OTA ZIPs reviewed in this repository (firmware/v*/SHA256SUMS.txt). A
+# package is only installed when its SHA-256 is listed here, so neither a
+# compromised download source nor a swapped local file can flash a device.
+# tests/test_firmware.py keeps this table in sync with the repository.
+PINNED_PACKAGE_SHA256 = {
+    "sidepulse-dot-1.1.0-ota.zip": "0e7325cacfa08a30cced5d0250ab3032e4c4b2b615dc3a09acb99f6021627761",
+    "sidepulse-pro-1.1.0-ota.zip": "1efc35498f837932938aaf1b3e4f2889549d09cfbf974ae1132cafb7768b6fac",
+    "sidepulse-dot-1.1.14-ota.zip": "1d82c907dfb945f8714e9021afaf793a161eff13182967bcc5d63ebbc212cdb7",
+}
+
 
 class FirmwareError(RuntimeError):
     pass
@@ -179,11 +189,32 @@ def read_package(data: bytes, filename: str) -> FirmwarePackage:
     return FirmwarePackage(product, version, contents["FIRMWARE.BIN"])
 
 
-def load_package(product: str, version: str | None, path: Path | None) -> FirmwarePackage:
+def package_is_pinned(data: bytes) -> bool:
+    return hashlib.sha256(data).hexdigest() in PINNED_PACKAGE_SHA256.values()
+
+
+def require_pinned(data: bytes, name: str, allow_unpinned: bool) -> None:
+    if allow_unpinned or package_is_pinned(data):
+        return
+    raise FirmwareError(
+        f"{name} is not a firmware package reviewed in this SidePulse build "
+        f"(SHA-256 {hashlib.sha256(data).hexdigest()}). Pass --allow-unpinned to install it anyway."
+    )
+
+
+def load_package(
+    product: str,
+    version: str | None,
+    path: Path | None,
+    *,
+    allow_unpinned: bool = False,
+) -> FirmwarePackage:
     if path is not None:
         path = path.expanduser()
         with path.open("rb") as stream:
-            return read_package(stream.read(MAX_PACKAGE_BYTES + 1), path.name)
+            data = stream.read(MAX_PACKAGE_BYTES + 1)
+        require_pinned(data, path.name, allow_unpinned)
+        return read_package(data, path.name)
     releases = [normalize_version(version)] if version else published_versions()
     for release in releases:
         name = f"sidepulse-{product}-{release}-ota.zip"
@@ -193,6 +224,7 @@ def load_package(product: str, version: str | None, path: Path | None) -> Firmwa
             continue
         data = download(f"{base}/{name}")
         verify_checksum(data, checksums[name], name)
+        require_pinned(data, name, allow_unpinned)
         return read_package(data, name)
     requested = f" for {normalize_version(version)}" if version else ""
     raise FirmwareError(f"No published {PRODUCT_NAMES[product]} firmware package found{requested}.")
@@ -244,7 +276,12 @@ def cmd_firmware_upgrade(args: argparse.Namespace) -> int:
             raise FirmwareError("Multiple SidePulse devices found. Select one with --device:\n" + paths)
         device = devices[0]
         print(f"{device.name}: firmware {device.version} ({device.root})", flush=True)
-        package = load_package(device.product, args.release_version, args.file)
+        package = load_package(
+            device.product,
+            args.release_version,
+            args.file,
+            allow_unpinned=args.allow_unpinned,
+        )
         if package.product != device.product:
             raise FirmwareError(f"This ZIP is for {PRODUCT_NAMES[package.product]}, but the device is {device.name}.")
         try:
@@ -286,4 +323,9 @@ def add_firmware_parser(subparsers: argparse._SubParsersAction) -> None:
     source.add_argument("--version", dest="release_version", help="Install a specific release, such as 1.1.0.")
     source.add_argument("--file", type=Path, help="Install a local customer OTA ZIP.")
     upgrade.add_argument("--dry-run", action="store_true", help="Download and verify the package without writing to the device.")
+    upgrade.add_argument(
+        "--allow-unpinned",
+        action="store_true",
+        help="Install a package whose SHA-256 is not pinned in this SidePulse build.",
+    )
     upgrade.set_defaults(func=cmd_firmware_upgrade)

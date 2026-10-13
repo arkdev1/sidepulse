@@ -44,6 +44,8 @@ class FirmwareTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
         patch('sys.stdout', self.stdout).start()
         patch('sys.stderr', self.stderr).start()
+        # Synthetic packages are not in the pinned table; pinning has its own tests.
+        patch.object(firmware, 'package_is_pinned', return_value=True).start()
 
     def make_device(self, product, version='1.0.5'):
         device = self.root / product
@@ -125,7 +127,7 @@ class FirmwareTests(unittest.TestCase):
 
     def test_status_identity_is_rechecked_after_download(self):
         package = firmware.FirmwarePackage('pro', '1.1.0', b'payload')
-        def load(*args):
+        def load(*args, **kwargs):
             (self.device / 'STATUS.TXT').write_text('release_version 1.0.5\nserial DIFFERENT\n')
             return package
         with patch.object(firmware, 'load_package', side_effect=load):
@@ -210,3 +212,36 @@ class FirmwareTests(unittest.TestCase):
             with self.assertRaises(firmware.FirmwareError):
                 firmware.load_package('pro', '../other', None)
             download.assert_not_called()
+
+
+REPO_FIRMWARE = Path(__file__).resolve().parents[1] / 'firmware'
+
+
+class FirmwarePinningTests(unittest.TestCase):
+    def test_pinned_table_matches_repository_checksums(self):
+        repo = {}
+        for sums in REPO_FIRMWARE.glob('v*/SHA256SUMS.txt'):
+            repo.update({name: digest for digest, name in (line.split() for line in sums.read_text().splitlines() if line.strip())})
+        self.assertEqual(firmware.PINNED_PACKAGE_SHA256, repo)
+
+    def test_repository_packages_are_pinned(self):
+        for path in REPO_FIRMWARE.glob('v*/*.zip'):
+            with self.subTest(package=path.name):
+                self.assertTrue(firmware.package_is_pinned(path.read_bytes()))
+                package = firmware.load_package(path.name.split('-')[1], None, path)
+                self.assertEqual(package.product, path.name.split('-')[1])
+
+    def test_unpinned_local_package_is_refused_unless_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'sidepulse-pro-1.1.0-ota.zip'
+            path.write_bytes(package_bytes())
+            with self.assertRaisesRegex(firmware.FirmwareError, 'allow-unpinned'):
+                firmware.load_package('pro', None, path)
+            self.assertEqual(firmware.load_package('pro', None, path, allow_unpinned=True).version, '1.1.0')
+
+    def test_unpinned_download_is_refused_even_with_matching_remote_checksum(self):
+        data = package_bytes()
+        sums = f'{hashlib.sha256(data).hexdigest()}  sidepulse-pro-1.1.0-ota.zip\n'.encode()
+        with patch.object(firmware, 'download', side_effect=[sums, data]):
+            with self.assertRaises(firmware.FirmwareError):
+                firmware.load_package('pro', '1.1.0', None)
