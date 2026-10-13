@@ -11,6 +11,7 @@ from .audit import append_status_audit_record
 from .collector import StatusMetadata, read_recent_lines, status_from_event, title_from_event
 from .ipc import send_hook_event
 from .origin import annotate_payload_with_origin
+from .private_files import append_private_line
 from .providers import detect_log_path, infer_provider_from_payload, parse_log_line
 
 
@@ -43,10 +44,10 @@ def format_hook_payload(
 
 
 def write_hook_line(log_path: Path, line: dict[str, Any]) -> None:
-    log_path = log_path.expanduser()
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with log_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(line, separators=(",", ":"), ensure_ascii=False) + "\n")
+    append_private_line(
+        log_path.expanduser(),
+        json.dumps(line, separators=(",", ":"), ensure_ascii=False) + "\n",
+    )
 
 
 def write_hook_payload(provider: str, log_path: Path, payload_text: str) -> None:

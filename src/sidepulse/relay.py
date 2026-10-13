@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
+from .collector import mode_for_event
 from .links import (
     DEFAULT_BRIDGE_SERVER,
     LinkError,
@@ -20,9 +21,8 @@ from .links import (
     iter_sse_messages,
     normalize_server,
 )
-from .providers import HOOK_PROVIDERS, candidate_state_dirs, default_state_dir
-from .collector import mode_for_event
-from .providers import parse_log_line
+from .private_files import private_runtime_dir
+from .providers import HOOK_PROVIDERS, candidate_state_dirs, default_state_dir, parse_log_line
 from .security import NetworkDisabledError, open_url, source_label
 from .settings import default_config_dir
 
@@ -65,7 +65,7 @@ def relay_socket_path_for_state_dir(state_dir: Path) -> Path:
     if len(str(path).encode("utf-8")) <= 96:
         return path
     digest = hashlib.sha256(str(path).encode("utf-8")).hexdigest()[:16]
-    return Path("/tmp") / f"sidepulse-relay-{os.getuid()}-{digest}.sock"
+    return private_runtime_dir() / f"relay-{digest}.sock"
 
 
 def new_relay_channel() -> str:

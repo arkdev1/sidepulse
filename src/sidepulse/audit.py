@@ -10,6 +10,7 @@ from typing import Any, Iterator
 from .battery import BatterySnapshot
 from .lid_sleep import MacSleepSnapshot
 from .models import AgentStatus, HookEvent
+from .private_files import append_private_line
 from .providers import default_state_dir
 
 
@@ -51,16 +52,15 @@ def append_status_audit_record(
 ) -> None:
     target = path or default_status_audit_log_path()
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as handle:
-            handle.write(
-                json.dumps(
-                    status_audit_record(event, status),
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-                + "\n"
+        append_private_line(
+            target,
+            json.dumps(
+                status_audit_record(event, status),
+                ensure_ascii=False,
+                separators=(",", ":"),
             )
+            + "\n",
+        )
     except OSError:
         pass
 
@@ -71,17 +71,16 @@ def append_status_history_record(
     path: Path | None = None,
 ) -> None:
     target = path or default_status_history_log_path()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("a", encoding="utf-8") as handle:
-        handle.write(
-            json.dumps(
-                record,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                default=str,
-            )
-            + "\n"
+    append_private_line(
+        target,
+        json.dumps(
+            record,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
         )
+        + "\n",
+    )
 
 
 def status_history_record(

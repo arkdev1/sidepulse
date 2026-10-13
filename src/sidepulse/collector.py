@@ -19,6 +19,7 @@ from .models import (
     provider_label,
 )
 from .origin import origin_label_from_payload
+from .private_files import ensure_private_dir
 from .providers import detect_log_path, parse_log_line
 from .settings import AgentMonitorSettings, load_settings
 
@@ -495,7 +496,7 @@ class LiveAgentMonitor:
             ],
         }
         try:
-            self.latest_state_path.parent.mkdir(parents=True, exist_ok=True)
+            ensure_private_dir(self.latest_state_path.parent)
             temp_path = self.latest_state_path.with_suffix(".json.tmp")
             temp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
             temp_path.replace(self.latest_state_path)

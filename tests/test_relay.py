@@ -27,6 +27,7 @@ from sidepulse.relay import (
     relay_event_message,
     relay_link_command,
 )
+from sidepulse.private_files import private_runtime_dir
 from sidepulse.providers import parse_log_line
 from sidepulse.service import SidePulseService
 from sidepulse.service_launch import install_systemd_user_service
@@ -82,7 +83,7 @@ class RelayConfigTests(unittest.TestCase):
 
     def test_long_state_paths_use_a_short_socket_path(self) -> None:
         path = relay_socket_path_for_state_dir(Path("/tmp") / ("very-long/" * 20))
-        self.assertEqual(path.parent, Path("/tmp"))
+        self.assertEqual(path.parent, private_runtime_dir())
         self.assertLessEqual(len(str(path).encode("utf-8")), 96)
 
 

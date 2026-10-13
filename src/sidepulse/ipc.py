@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+from .private_files import PRIVATE_FILE_MODE, ensure_private_dir
 from .providers import candidate_state_dirs, default_state_dir
 
 
@@ -97,7 +98,7 @@ class HookEventServer:
         self.running = False
 
     def start(self) -> Path:
-        self.socket_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(self.socket_path.parent)
         try:
             self.socket_path.unlink()
         except FileNotFoundError:
@@ -105,6 +106,9 @@ class HookEventServer:
 
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server.bind(str(self.socket_path))
+        # The 0700 parent already keeps other users out; this covers sockets
+        # placed in a directory that is shared.
+        self.socket_path.chmod(PRIVATE_FILE_MODE)
         server.listen(16)
         server.settimeout(0.5)
         self.socket = server
