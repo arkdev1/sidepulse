@@ -25,9 +25,14 @@ class NetworkDisabledError(OSError):
     """Raised instead of opening a connection while local-only mode is on."""
 
 
+DEFAULT_SOURCE_LABEL = "SidePulse"
+
+
 @dataclass(frozen=True)
 class SecurityPolicy:
     local_only: bool = True
+    # Name shown to linked phones and relay receivers instead of the hostname.
+    source_label: str = DEFAULT_SOURCE_LABEL
 
 
 def default_security_policy_path() -> Path:
@@ -46,9 +51,16 @@ def load_security_policy(path: Path | None = None) -> SecurityPolicy:
     values = {}
     for name, default in vars(defaults).items():
         value = data.get(name, default)
-        # Only real booleans are honoured; anything else keeps the safe default.
-        values[name] = value if isinstance(value, bool) else default
+        # Only values of the expected type are honoured; anything else keeps
+        # the safe default.
+        values[name] = value if type(value) is type(default) else default
+    label = values["source_label"].strip()[:80]
+    values["source_label"] = label or DEFAULT_SOURCE_LABEL
     return SecurityPolicy(**values)
+
+
+def source_label() -> str:
+    return load_security_policy().source_label
 
 
 def network_allowed(path: Path | None = None) -> bool:

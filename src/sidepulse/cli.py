@@ -6,7 +6,6 @@ import os
 import queue
 import select
 import shutil
-import socket
 import subprocess
 import sys
 import threading
@@ -78,7 +77,7 @@ from .providers import (
     detect_provider_configs,
     default_log_path,
 )
-from .security import network_allowed, network_disabled_message
+from .security import network_allowed, network_disabled_message, source_label
 from .settings import (
     LED_DISPLAY_BATTERY,
     LED_DISPLAY_CUSTOM,
@@ -647,7 +646,7 @@ def _format_destinations(local_devices, phone_links) -> str:
 
 
 def _remote_event_data(event_id: str) -> dict[str, object]:
-    source: dict[str, object] = {"name": socket.gethostname()}
+    source: dict[str, object] = {"name": source_label()}
     try:
         battery = read_battery_snapshot()
     except Exception:

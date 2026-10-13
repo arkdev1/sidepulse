@@ -61,6 +61,15 @@ class SecurityPolicyTests(LocalOnlyTestCase):
         self.write_policy(json.dumps({"local_only": False}))
         self.assertTrue(network_allowed())
 
+    def test_source_label_replaces_hostname(self) -> None:
+        self.assertEqual(security.source_label(), security.DEFAULT_SOURCE_LABEL)
+        self.write_policy(json.dumps({"source_label": "  Work Mac  "}))
+        self.assertEqual(security.source_label(), "Work Mac")
+        for value in ("", "   ", 42, None):
+            with self.subTest(value=value):
+                self.write_policy(json.dumps({"source_label": value}))
+                self.assertEqual(security.source_label(), security.DEFAULT_SOURCE_LABEL)
+
     def test_environment_override_allows_network_once(self) -> None:
         with patch.dict(os.environ, {security.ALLOW_NETWORK_ENV: "1"}):
             self.assertTrue(network_allowed())

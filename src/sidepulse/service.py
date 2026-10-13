@@ -27,6 +27,7 @@ from .relay import (
     load_relay_config,
     publish_relay_event,
 )
+from .security import source_label
 from .settings import LED_DISPLAY_BATTERY, LED_DISPLAY_CUSTOM, load_settings
 
 
@@ -205,7 +206,7 @@ class SidePulseService:
             active_targets.add(key)
             if self.last_program_by_target.get(key) == program:
                 continue
-            data: dict[str, object] = {"source": {"name": socket.gethostname()}}
+            data: dict[str, object] = {"source": {"name": source_label()}}
             try:
                 send_ios_program(link, program, data=data)
             except Exception as exc:

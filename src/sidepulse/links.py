@@ -5,7 +5,6 @@ import os
 import queue
 import re
 import secrets
-import socket
 import threading
 import time
 import urllib.error
@@ -17,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-from .security import NetworkDisabledError, open_url
+from .security import NetworkDisabledError, open_url, source_label
 from .settings import default_config_dir
 
 
@@ -181,7 +180,7 @@ def pairing_url(server: str, channel: str, sender: str | None = None) -> str:
         "server": normalized_server,
         "channel": channel,
     }
-    clean_sender = (sender or socket.gethostname()).strip()[:80]
+    clean_sender = (sender or source_label()).strip()[:80]
     if clean_sender:
         query["sender"] = clean_sender
     return "sidepulse://pair?" + urllib.parse.urlencode(query)

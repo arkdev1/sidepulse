@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from sidepulse.cli import sidepulse_main
+from sidepulse.collector import mode_for_event
 from sidepulse.device_writer import DeviceCandidate
 from sidepulse.hook import hook_log_main
 from sidepulse.models import AgentMode
@@ -26,6 +27,7 @@ from sidepulse.relay import (
     relay_event_message,
     relay_link_command,
 )
+from sidepulse.providers import parse_log_line
 from sidepulse.service import SidePulseService
 from sidepulse.service_launch import install_systemd_user_service
 from sidepulse.settings import AgentMonitorSettings
@@ -99,7 +101,7 @@ class RelayTransportTests(unittest.TestCase):
         self.assertTrue(event_id)
 
     def test_unknown_provider_is_rejected(self) -> None:
-        message = relay_event_message("claude", {})
+        message = relay_event_message("claude", {"hook_event_name": "Stop"})
         message["provider"] = "../../escape"
         self.assertIsNone(parse_relay_event(json.dumps(message)))
 
@@ -111,7 +113,9 @@ class RelayTransportTests(unittest.TestCase):
             outbound_channel="a" * 22,
         )
         with patch("sidepulse.relay.urllib.request.urlopen", return_value=response) as open_url:
-            publish_relay_event(config, "codex", {"event": {"type": "task_complete"}})
+            publish_relay_event(
+                config, "codex", {"event": {"hook_event_name": "Stop", "session_id": "s1"}}
+            )
 
         request = open_url.call_args.args[0]
         self.assertEqual(
@@ -119,6 +123,34 @@ class RelayTransportTests(unittest.TestCase):
             f"https://bridge.sidepulse.io/api/leds/{'a' * 22}",
         )
         self.assertEqual(json.loads(request.data)["type"], "agent_event")
+
+    def test_publish_skips_lines_the_collector_would_ignore(self) -> None:
+        config = RelayConfig(server="https://bridge.sidepulse.io", outbound_channel="a" * 22)
+        with patch("sidepulse.relay.urllib.request.urlopen") as open_url:
+            publish_relay_event(config, "codex", {"event": {"type": "task_complete"}})
+        open_url.assert_not_called()
+
+    def test_relayed_event_carries_status_but_no_private_content(self) -> None:
+        line = {
+            "hook_event_name": "Stop",
+            "session_id": "vm-session",
+            "cwd": "/Users/someone/secret-project",
+            "transcript_path": "/Users/someone/.claude/projects/x.jsonl",
+            "prompt": "deploy with password hunter2",
+            "last_assistant_message": "Should I also rotate the API key?",
+            "tool_input": {"command": "cat ~/.ssh/id_ed25519"},
+        }
+        message = relay_event_message("claude", line, "Work Mac")
+        wire = json.dumps(message)
+        for secret in ("secret-project", "hunter2", "rotate the API key", "id_ed25519", "transcript"):
+            self.assertNotIn(secret, wire)
+        self.assertEqual(message["source"], {"name": "Work Mac"})
+
+        provider, parsed_line, _ = parse_relay_event(wire)
+        record = parse_log_line(provider, json.dumps(parsed_line))
+        local_record = parse_log_line("claude", json.dumps(line))
+        self.assertEqual(mode_for_event(record), mode_for_event(local_record))
+        self.assertEqual(mode_for_event(record), AgentMode.WAITING_FOR_INPUT)
 
     def test_hook_notifies_ui_and_background_service_sockets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import math
 import shlex
-import socket
 import subprocess
 import threading
 import time
@@ -165,6 +164,7 @@ from .sd_eject_guard_launch import (
     sd_eject_guard_installed,
     uninstall_sd_eject_guard,
 )
+from .security import source_label
 from .session_actions import (
     SESSION_OPEN_APP,
     SESSION_OPEN_TERMINAL,
@@ -5773,7 +5773,7 @@ def linked_phone_device_id(link: IOSLink) -> str:
 
 
 def remote_event_data(snapshot: BatterySnapshot | None) -> dict[str, object]:
-    source: dict[str, object] = {"name": socket.gethostname()}
+    source: dict[str, object] = {"name": source_label()}
     if snapshot is not None and snapshot.battery_present:
         source["battery"] = {
             "level": snapshot.percent,

@@ -4,7 +4,6 @@ import json
 import hashlib
 import os
 import secrets
-import socket
 import threading
 import urllib.error
 import urllib.parse
@@ -22,7 +21,9 @@ from .links import (
     normalize_server,
 )
 from .providers import HOOK_PROVIDERS, candidate_state_dirs, default_state_dir
-from .security import NetworkDisabledError, open_url
+from .collector import mode_for_event
+from .providers import parse_log_line
+from .security import NetworkDisabledError, open_url, source_label
 from .settings import default_config_dir
 
 
@@ -76,9 +77,9 @@ def load_relay_config(path: Path | None = None) -> RelayConfig:
     try:
         data = json.loads(target.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
-        return RelayConfig(server=bridge_server(), machine_name=socket.gethostname())
+        return RelayConfig(server=bridge_server())
     if not isinstance(data, dict) or data.get("version") != RELAY_CONFIG_VERSION:
-        return RelayConfig(server=bridge_server(), machine_name=socket.gethostname())
+        return RelayConfig(server=bridge_server())
     try:
         server = normalize_server(str(data.get("server") or bridge_server()))
     except LinkError:
@@ -87,7 +88,7 @@ def load_relay_config(path: Path | None = None) -> RelayConfig:
         server=server,
         receiver_channel=clean_channel(data.get("receiver_channel")),
         outbound_channel=clean_channel(data.get("outbound_channel")),
-        machine_name=str(data.get("machine_name") or socket.gethostname()).strip()[:80],
+        machine_name=str(data.get("machine_name") or "").strip()[:80],
     )
 
 
@@ -99,7 +100,7 @@ def save_relay_config(config: RelayConfig, path: Path | None = None) -> Path:
         "server": normalize_server(config.server),
         "receiver_channel": clean_channel(config.receiver_channel),
         "outbound_channel": clean_channel(config.outbound_channel),
-        "machine_name": config.machine_name.strip()[:80] or socket.gethostname(),
+        "machine_name": config.machine_name.strip()[:80],
     }
     temp = target.with_suffix(".json.tmp")
     temp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -156,14 +157,54 @@ def clean_channel(value: object, *, required: bool = False) -> str:
     return channel
 
 
-def relay_event_message(provider: str, line: dict) -> dict[str, object]:
+def minimal_relay_line(provider: str, line: dict) -> tuple[str, dict] | None:
+    """Reduce a hook payload to what a receiver needs to show agent status.
+
+    The status is computed here, on the source machine, and sent as an
+    explicit sidepulse_status, so prompts, tool input/output, messages and
+    paths never leave the computer. Lines the local collector would ignore
+    are not sent at all.
+    """
+    record = parse_log_line(provider, json.dumps(line, ensure_ascii=False))
+    if record is None:
+        return None
+    event: dict[str, object] = {
+        "hook_event_name": record.event_name,
+        "logged_at": record.logged_at.isoformat(),
+    }
+    for key, value in (
+        ("session_id", record.session_id),
+        ("turn_id", record.turn_id),
+        ("agent_id", record.agent_id),
+        ("tool_name", record.tool_name),
+        ("agent_origin", record.origin),
+    ):
+        if value:
+            event[key] = value
+    mode = mode_for_event(record)
+    if mode is not None:
+        event["sidepulse_status"] = mode.value
+    if record.provider == "codex":
+        return record.provider, {"logged_at": event["logged_at"], "event": event}
+    return record.provider, event
+
+
+def relay_event_message(
+    provider: str,
+    line: dict,
+    source_name: str | None = None,
+) -> dict[str, object] | None:
+    minimal = minimal_relay_line(provider, line)
+    if minimal is None:
+        return None
+    provider, event = minimal
     return {
         "v": RELAY_MESSAGE_VERSION,
         "type": "agent_event",
         "event_id": str(uuid.uuid4()),
-        "source": {"name": socket.gethostname()},
+        "source": {"name": source_name or source_label()},
         "provider": provider,
-        "line": line,
+        "line": event,
     }
 
 
@@ -216,8 +257,11 @@ def annotate_remote_line(provider: str, line: dict, source_name: str) -> dict:
 def publish_relay_event(config: RelayConfig, provider: str, line: dict) -> None:
     if not config.outbound_channel:
         return
+    message = relay_event_message(provider, line, config.machine_name or None)
+    if message is None:
+        return
     body = json.dumps(
-        relay_event_message(provider, line),
+        message,
         separators=(",", ":"),
         ensure_ascii=False,
     ).encode("utf-8")
