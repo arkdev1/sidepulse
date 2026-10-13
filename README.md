@@ -127,6 +127,39 @@ It downloads the script completely before executing it, so curl failures do not
 run a partial installer. The website script forwards to `scripts/setup.sh` on
 GitHub, keeping both entry points on one implementation.
 
+`update` needs network access, which local-only mode blocks by default. From a
+reviewed checkout, `git pull`, review the diff and run `uv tool install --force .`
+instead.
+
+### Security policy
+
+SidePulse reads `~/.config/sidepulse/agent-monitor/security.json` (or
+`$XDG_CONFIG_HOME/sidepulse/agent-monitor/security.json`). A missing or
+malformed file means the most restrictive settings:
+
+```json
+{
+  "local_only": true,
+  "readonly_fallback": false,
+  "source_label": "SidePulse"
+}
+```
+
+- `local_only`: no outbound connections at all. Relay, phone links and pushes,
+  firmware downloads and `sidepulse update` refuse to run. Set it to `false` to
+  use them, or run one command with `SIDEPULSE_ALLOW_NETWORK=1`.
+- `readonly_fallback`: when the OS denies writing `LEDS.LED` (read-only volume,
+  MDM/DLP removable-storage policy), SidePulse would otherwise switch to the
+  read-request channel (Pro) or USB vendor commands (Dot), bypassing that
+  policy. Enable it only where the policy permits it.
+- `source_label`: the name linked phones and relay receivers see, instead of
+  the computer's hostname.
+
+When networking is enabled, relayed events carry only the agent status (event,
+session ids, tool name, computed status), never prompts, tool input/output,
+messages or paths. Hook and audit logs under `~/.local/state/sidepulse` are
+owner-only (0600 files, 0700 directories) and rotate at 10 MB.
+
 The installer updates `~/.local/share/sidepulse/venv` from GitHub, refreshes the
 CLI links, and runs `sidepulse setup` to configure hooks and restart services.
 It replaces the installed code even when the package version has not changed.
