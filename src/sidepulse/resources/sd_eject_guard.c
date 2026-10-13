@@ -63,8 +63,8 @@ static bool is_builtin_sd(DADiskRef disk) {
     return match;
 }
 
-// Mirrors device_writer.is_device_name: lowercase alphanumerics only, then
-// look for a SidePulse volume-name hint.
+// Like device_writer.is_device_name: lowercase alphanumerics only, then look
+// for a SidePulse volume-name hint.
 static bool is_sidepulse_volume(DADiskRef disk) {
     CFDictionaryRef desc = DADiskCopyDescription(disk);
     if (!desc) return false;
@@ -81,8 +81,8 @@ static bool is_sidepulse_volume(DADiskRef disk) {
             normalized[length++] = (char)tolower((unsigned char)*c);
     }
     normalized[length] = '\0';
-    return strstr(normalized, "sidepulsepro") || strstr(normalized, "sidepulsedot") ||
-           strstr(normalized, "pulsedot");
+    // The Pro may mount as "SidePulse" or "SidePulsePro".
+    return strstr(normalized, "sidepulse") || strstr(normalized, "pulsedot");
 }
 
 static bool is_mounted(DADiskRef disk) {
