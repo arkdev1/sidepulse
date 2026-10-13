@@ -120,7 +120,7 @@ def download(url: str, *, limit: int = MAX_PACKAGE_BYTES) -> bytes:
         with open_url(request, timeout=30) as response:
             data = response.read(limit + 1)
     except NetworkDisabledError as exc:
-        raise FirmwareError(f"Firmware download blocked: {exc}. You can use --file with a local OTA ZIP.") from exc
+        raise FirmwareError(f"Firmware download blocked: {exc} Bundled packages and --file work offline.") from exc
     except (OSError, urllib.error.URLError, http.client.HTTPException) as exc:
         raise FirmwareError(f"Could not download firmware release data: {exc}. You can use --file with a local OTA ZIP.") from exc
     if len(data) > limit:
