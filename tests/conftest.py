@@ -19,6 +19,9 @@ ISOLATED_STATE_HOME.mkdir()
 
 os.environ["SIDEPULSE_MOUNT_ROOTS"] = str(ISOLATED_MOUNT_ROOT)
 os.environ["XDG_STATE_HOME"] = str(ISOLATED_STATE_HOME)
+# Transport tests mock urlopen; local-only enforcement is covered in
+# test_security.py, which removes this override.
+os.environ["SIDEPULSE_ALLOW_NETWORK"] = "1"
 
 
 def pytest_sessionfinish(session, exitstatus):

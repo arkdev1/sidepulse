@@ -26,6 +26,8 @@ jobs:
         run: |
           smoke_home="$(mktemp -d)"
           export HOME="$smoke_home"
+          # The smoke test exercises link/push, which local-only mode blocks.
+          export SIDEPULSE_ALLOW_NETWORK=1
           SIDEPULSE_INSTALL_SPEC="$GITHUB_WORKSPACE" \
             PYTHON_BIN=python \
             sh scripts/setup.sh

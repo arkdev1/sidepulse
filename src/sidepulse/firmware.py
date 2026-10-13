@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .device_writer import discover_devices, sync_directory
+from .security import NetworkDisabledError, open_url
 
 
 RELEASES_URL = "https://api.github.com/repos/inteliwear/sidepulse/contents/firmware?ref=main"
@@ -97,8 +98,10 @@ def find_devices(device_path: Path | None) -> list[FirmwareDevice]:
 def download(url: str, *, limit: int = MAX_PACKAGE_BYTES) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": "sidepulse-cli", "Cache-Control": "no-cache"})
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with open_url(request, timeout=30) as response:
             data = response.read(limit + 1)
+    except NetworkDisabledError as exc:
+        raise FirmwareError(f"Firmware download blocked: {exc}. You can use --file with a local OTA ZIP.") from exc
     except (OSError, urllib.error.URLError, http.client.HTTPException) as exc:
         raise FirmwareError(f"Could not download firmware release data: {exc}. You can use --file with a local OTA ZIP.") from exc
     if len(data) > limit:

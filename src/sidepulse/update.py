@@ -5,6 +5,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from .security import network_allowed, network_disabled_message
+
 
 SETUP_URL = "https://sidepulse.io/setup.sh"
 
@@ -14,6 +16,9 @@ def update_installation(*, dry_run: bool = False) -> int:
     if dry_run:
         print("Would run the same installer as one-command setup, using its install path and environment overrides.")
         return 0
+    if not network_allowed():
+        print(f"SidePulse update blocked: {network_disabled_message()}", file=sys.stderr)
+        return 1
     try:
         # Download completely before executing: a failed or interrupted curl
         # must not run a partial installer or appear to succeed via a pipe.

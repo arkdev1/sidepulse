@@ -22,6 +22,7 @@ from .links import (
     normalize_server,
 )
 from .providers import HOOK_PROVIDERS, candidate_state_dirs, default_state_dir
+from .security import NetworkDisabledError, open_url
 from .settings import default_config_dir
 
 
@@ -228,7 +229,7 @@ def publish_relay_event(config: RelayConfig, provider: str, line: dict) -> None:
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=5.0):
+        with open_url(request, timeout=5.0):
             return
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace").strip()
@@ -247,12 +248,14 @@ def listen_for_relay_events(
     while not stop.is_set():
         request = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
         try:
-            with urllib.request.urlopen(request, timeout=30.0) as response:
+            with open_url(request, timeout=30.0) as response:
                 for value in iter_sse_messages(response):
                     if stop.is_set():
                         return
                     parsed = parse_relay_event(value)
                     if parsed is not None:
                         on_event(*parsed)
+        except NetworkDisabledError:
+            return
         except (OSError, urllib.error.URLError):
             stop.wait(1.0)

@@ -78,6 +78,7 @@ from .providers import (
     detect_provider_configs,
     default_log_path,
 )
+from .security import network_allowed, network_disabled_message
 from .settings import (
     LED_DISPLAY_BATTERY,
     LED_DISPLAY_CUSTOM,
@@ -664,6 +665,9 @@ def _remote_event_data(event_id: str) -> dict[str, object]:
 
 
 def cmd_sidepulse_link(args: argparse.Namespace) -> int:
+    if not network_allowed():
+        print(f"sidepulse link: {network_disabled_message()}", file=sys.stderr)
+        return 1
     relay_code = getattr(args, "relay_code", None)
     if relay_code:
         try:

@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+from .security import NetworkDisabledError, open_url
 from .settings import default_config_dir
 
 
@@ -276,7 +277,7 @@ def listen_for_ios_registration(
         remaining = max(1.0, deadline - time.monotonic())
         request = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
         try:
-            with urllib.request.urlopen(request, timeout=min(20.0, remaining)) as response:
+            with open_url(request, timeout=min(20.0, remaining)) as response:
                 for message in iter_sse_messages(response):
                     if stop.is_set():
                         return
@@ -286,6 +287,8 @@ def listen_for_ios_registration(
                         continue
                     results.put(link)
                     return
+        except NetworkDisabledError:
+            return
         except (OSError, urllib.error.URLError):
             if not stop.wait(0.5):
                 continue
@@ -335,7 +338,7 @@ def send_ios_program(
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=10.0) as response:
+        with open_url(request, timeout=10.0) as response:
             return response.read().decode("utf-8", errors="replace").strip()
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace").strip()
