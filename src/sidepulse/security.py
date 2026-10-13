@@ -33,6 +33,11 @@ class SecurityPolicy:
     local_only: bool = True
     # Name shown to linked phones and relay receivers instead of the hostname.
     source_label: str = DEFAULT_SOURCE_LABEL
+    # When a write to LEDS.LED is denied (read-only volume, MDM/DLP storage
+    # policy), fall back to the read-request channel (Pro) or USB vendor
+    # commands (Dot). Off by default: those transports bypass the very policy
+    # that denied the write.
+    readonly_fallback: bool = False
 
 
 def default_security_policy_path() -> Path:

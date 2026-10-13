@@ -25,9 +25,27 @@ def volume(tmp_path):
 def test_denied_open_uses_fallback(volume, error):
     with patch.object(Path, "open", side_effect=OSError(error, "denied")), patch.object(
         readonly, "write_readonly_program"
-    ) as fallback:
+    ) as fallback, patch.object(writer, "readonly_fallback_enabled", return_value=True):
         writer.write_text_synced(volume / "LEDS.LED", "off")
     fallback.assert_called_once_with(volume / "LEDS.LED", "off")
+
+
+@pytest.mark.parametrize("error", [errno.EROFS, errno.EACCES, errno.EPERM])
+def test_denied_open_without_opt_in_never_bypasses_policy(volume, error):
+    with patch.object(Path, "open", side_effect=OSError(error, "denied")), patch.object(
+        readonly, "write_readonly_program"
+    ) as fallback, pytest.raises(writer.DeviceWriteError, match="fallback is disabled"):
+        writer.write_text_synced(volume / "LEDS.LED", "off")
+    fallback.assert_not_called()
+
+
+def test_readonly_fallback_defaults_off(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert writer.readonly_fallback_enabled() is False
+    policy = tmp_path / "sidepulse" / "agent-monitor" / "security.json"
+    policy.parent.mkdir(parents=True)
+    policy.write_text('{"readonly_fallback": true}')
+    assert writer.readonly_fallback_enabled() is True
 
 
 @pytest.mark.parametrize("error", [errno.EIO, errno.ENOENT, errno.ENOSPC])

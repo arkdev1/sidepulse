@@ -101,6 +101,12 @@ def write_text_synced(target: Path, text: str) -> None:
     except OSError as exc:
         if exc.errno not in (errno.EROFS, errno.EACCES, errno.EPERM):
             raise
+        if not readonly_fallback_enabled():
+            raise DeviceWriteError(
+                f"{target} is not writable ({exc.strerror}). The read-only transport "
+                "fallback is disabled; set \"readonly_fallback\": true in security.json "
+                "only if this computer's storage policy permits it."
+            ) from exc
         from .readonly_control import write_readonly_program
 
         write_readonly_program(target, text)
@@ -113,6 +119,12 @@ def write_text_synced(target: Path, text: str) -> None:
 
     if is_new:
         sync_directory(target.parent)
+
+
+def readonly_fallback_enabled() -> bool:
+    from .security import load_security_policy
+
+    return load_security_policy().readonly_fallback
 
 
 def sync_fd(fd: int) -> None:
