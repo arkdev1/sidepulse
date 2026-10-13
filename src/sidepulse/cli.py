@@ -164,9 +164,12 @@ def build_sidepulse_parser() -> argparse.ArgumentParser:
     setup.add_argument("--dry-run", action="store_true", help="Show what would change.")
     setup.add_argument(
         "--sd-eject-guard-scope",
-        choices=("auto", "system", "user"),
-        default="auto",
-        help="Install the SD eject guard as a system service when possible, or as a user agent.",
+        choices=("none", "auto", "system", "user"),
+        default="none",
+        help=(
+            "Opt in to the SidePulse Pro SD eject guard: as a system service when possible "
+            "(auto), or explicitly as a system service or user agent. Default: not installed."
+        ),
     )
     setup.add_argument(
         "--no-status-bar",
@@ -1094,15 +1097,21 @@ def cmd_sidepulse_setup(args: argparse.Namespace) -> int:
 
     from .sd_eject_guard_launch import SD_EJECT_GUARD_DISPLAY_NAME, SdEjectGuardInstallError, install_sd_eject_guard
 
-    try:
-        guard_result = install_sd_eject_guard(
-            scope=args.sd_eject_guard_scope,
-            dry_run=args.dry_run,
+    if args.sd_eject_guard_scope == "none":
+        print(
+            f"{SD_EJECT_GUARD_DISPLAY_NAME}: not installed "
+            "(opt in with --sd-eject-guard-scope auto|user|system)"
         )
-    except (SdEjectGuardInstallError, OSError, subprocess.CalledProcessError) as exc:
-        print(f"{SD_EJECT_GUARD_DISPLAY_NAME}: {exc}", file=sys.stderr)
-        return 1
-    print_sd_eject_guard_result(guard_result)
+    else:
+        try:
+            guard_result = install_sd_eject_guard(
+                scope=args.sd_eject_guard_scope,
+                dry_run=args.dry_run,
+            )
+        except (SdEjectGuardInstallError, OSError, subprocess.CalledProcessError) as exc:
+            print(f"{SD_EJECT_GUARD_DISPLAY_NAME}: {exc}", file=sys.stderr)
+            return 1
+        print_sd_eject_guard_result(guard_result)
 
     if args.no_status_bar:
         return 0

@@ -7,6 +7,11 @@
 // that, then retries the mount every few seconds; the retries are dissented
 // while locked and succeed after unlock.
 //
+// Only SidePulse volumes are guarded: any other SD card keeps the standard
+// macOS behaviour, so the lock-screen eject protection stays in place for
+// media that is not a SidePulse. A card whose volume name is unknown is
+// treated as not ours.
+//
 // Build: clang -o "SidePulse Pro Eject Prevention" sd_eject_guard.c \
 //          -framework DiskArbitration -framework CoreFoundation
 // Run:   ./sd_eject_guard [-n]   (leave running; Ctrl-C to stop)
@@ -14,6 +19,7 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <DiskArbitration/DiskArbitration.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -57,6 +63,28 @@ static bool is_builtin_sd(DADiskRef disk) {
     return match;
 }
 
+// Mirrors device_writer.is_device_name: lowercase alphanumerics only, then
+// look for a SidePulse volume-name hint.
+static bool is_sidepulse_volume(DADiskRef disk) {
+    CFDictionaryRef desc = DADiskCopyDescription(disk);
+    if (!desc) return false;
+    CFStringRef vol = CFDictionaryGetValue(desc, kDADiskDescriptionVolumeNameKey);
+    char raw[256] = "";
+    bool have_name = vol && CFStringGetCString(vol, raw, sizeof(raw), kCFStringEncodingUTF8);
+    CFRelease(desc);
+    if (!have_name) return false;
+
+    char normalized[256];
+    size_t length = 0;
+    for (const char *c = raw; *c && length + 1 < sizeof(normalized); c++) {
+        if (isalnum((unsigned char)*c))
+            normalized[length++] = (char)tolower((unsigned char)*c);
+    }
+    normalized[length] = '\0';
+    return strstr(normalized, "sidepulsepro") || strstr(normalized, "sidepulsedot") ||
+           strstr(normalized, "pulsedot");
+}
+
 static bool is_mounted(DADiskRef disk) {
     CFDictionaryRef desc = DADiskCopyDescription(disk);
     if (!desc) return false;
@@ -95,7 +123,7 @@ static void start_mount_retries(DADiskRef disk) {
 
 static DADissenterRef eject_approval(DADiskRef disk, void *ctx) {
     (void)ctx;
-    if (!is_builtin_sd(disk))
+    if (!is_builtin_sd(disk) || !is_sidepulse_volume(disk))
         return NULL;  // not ours, allow
     const char *disk_name = DADiskGetBSDName(disk);
     if (!disk_name) disk_name = "?";

@@ -1415,8 +1415,10 @@ class StatusBarController(NSObject):
             "Installed" if sleep_installed else "Needs administrator setup",
         )
         self.set_setup_checkbox("launch", True, enabled=not launch_installed)
-        self.set_setup_checkbox("eject_guard", True, enabled=not eject_installed)
-        self.set_setup_checkbox("sleep_helper", True, enabled=not sleep_installed)
+        # Both change system behaviour (lock-screen SD eject, a sudoers rule
+        # for pmset), so they are opt-in rather than pre-checked.
+        self.set_setup_checkbox("eject_guard", eject_installed, enabled=not eject_installed)
+        self.set_setup_checkbox("sleep_helper", sleep_installed, enabled=not sleep_installed)
         eject_uninstall = self.setup_buttons.get("eject_guard_uninstall")
         if eject_uninstall is not None:
             eject_uninstall.setEnabled_(eject_installed)

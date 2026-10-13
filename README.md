@@ -509,17 +509,19 @@ sidepulse setup
 ```
 
 `sidepulse setup` installs or refreshes all supported agent hooks, including
-Junie CLI, installs SidePulse Pro Eject Prevention, writes the status-bar
-LaunchAgent, starts both helpers immediately, and enables them at login. This is
+Junie CLI, writes the status-bar LaunchAgent, starts it immediately, and enables
+it at login. This is
 intentionally an explicit command instead of a `pip install` side effect. To set
 up only one provider, pass its name, for example `sidepulse setup junie`.
-To skip the status-bar app but still install hooks and SidePulse Pro Eject Prevention, use
+To skip the status-bar app but still install hooks, use
 `sidepulse setup --no-status-bar`.
 
-SidePulse Pro Eject Prevention keeps the built-in SD reader attached after
-macOS hibernate or lock-screen mount refusals. By default setup installs it
-system-wide when already running with system permissions, otherwise as a
-per-user LaunchAgent:
+SidePulse Pro Eject Prevention keeps a SidePulse Pro in the built-in SD reader
+attached after macOS hibernate or lock-screen mount refusals. It overrides the
+macOS lock-screen eject for that card, so it is opt-in and only applies to
+volumes named like a SidePulse; every other SD card keeps the standard macOS
+behaviour. `auto` installs it system-wide when already running with system
+permissions, otherwise as a per-user LaunchAgent:
 
 ```sh
 sidepulse setup --sd-eject-guard-scope auto
