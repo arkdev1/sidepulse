@@ -37,8 +37,9 @@ PINNED_PACKAGE_SHA256 = {
 }
 
 
-# The pinned ZIPs ship inside the installed package (resources/firmware is a
-# link to the repository's firmware/ directory), so upgrades work offline.
+# The pinned ZIPs ship inside the installed package (resources/firmware holds
+# copies of the repository's firmware/v*/*.zip, checked by
+# tests/test_firmware.py), so upgrades work offline.
 BUNDLED_FIRMWARE = "firmware"
 
 
