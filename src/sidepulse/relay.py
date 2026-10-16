@@ -109,12 +109,15 @@ def save_relay_config(config: RelayConfig, path: Path | None = None) -> Path:
     return target
 
 
-def ensure_receiver_config(path: Path | None = None) -> RelayConfig:
+def ensure_receiver_config(path: Path | None = None, *, server: str | None = None) -> RelayConfig:
     config = load_relay_config(path)
-    if config.receiver_channel:
-        return config
-    updated = replace(config, receiver_channel=new_relay_channel())
-    save_relay_config(updated, path)
+    updated = config
+    if server is not None and normalize_server(server) != config.server:
+        updated = replace(updated, server=normalize_server(server))
+    if not updated.receiver_channel:
+        updated = replace(updated, receiver_channel=new_relay_channel())
+    if updated != config:
+        save_relay_config(updated, path)
     return updated
 
 

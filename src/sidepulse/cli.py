@@ -140,6 +140,9 @@ def build_sidepulse_parser() -> argparse.ArgumentParser:
     from .firmware import add_firmware_parser
 
     add_firmware_parser(subparsers)
+    from .bridge import add_bridge_parser
+
+    add_bridge_parser(subparsers)
     subparsers.add_parser(
         "agent-monitor",
         help="Install hooks and show live AI agent statuses.",
@@ -667,13 +670,18 @@ def _remote_event_data(event_id: str) -> dict[str, object]:
 
 
 def cmd_sidepulse_link(args: argparse.Namespace) -> int:
-    if not network_allowed():
-        print(f"sidepulse link: {network_disabled_message()}", file=sys.stderr)
+    try:
+        server = bridge_server()
+    except LinkError as exc:
+        print(f"sidepulse link: {exc}", file=sys.stderr)
+        return 1
+    if not network_allowed(url=server):
+        print(f"sidepulse link: {network_disabled_message(server)}", file=sys.stderr)
         return 1
     relay_code = getattr(args, "relay_code", None)
     if relay_code:
         try:
-            config = configure_outbound_channel(relay_code, server=bridge_server())
+            config = configure_outbound_channel(relay_code, server=server)
         except LinkError as exc:
             print(f"sidepulse link: {exc}", file=sys.stderr)
             return 1
@@ -685,8 +693,7 @@ def cmd_sidepulse_link(args: argparse.Namespace) -> int:
         return 0
 
     try:
-        relay_config = ensure_receiver_config()
-        server = bridge_server()
+        relay_config = ensure_receiver_config(server=server)
         channel = new_pairing_channel()
         url = pairing_url(server, channel)
         qr = render_terminal_qr(

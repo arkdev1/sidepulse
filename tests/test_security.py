@@ -7,6 +7,7 @@ import os
 import tempfile
 import threading
 import unittest
+import urllib.request
 from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
@@ -130,6 +131,58 @@ class EgressBlockedTests(LocalOnlyTestCase):
             self.assertEqual(update_installation(), 1)
         run.assert_not_called()
 
+
+
+class AllowedServersTests(LocalOnlyTestCase):
+    def test_entries_are_normalized_and_bad_ones_dropped(self) -> None:
+        self.write_policy(json.dumps({"allowed_servers": [
+            "HTTP://Bridge.LAN:80/", "https://bridge.lan:8443", "https://bridge.lan:8443/x",
+            "ftp://bridge.lan", "not a url", 42, None, "http://user:pw@bridge.lan",
+        ]}))
+        self.assertEqual(
+            load_security_policy().allowed_servers,
+            ("http://bridge.lan", "https://bridge.lan:8443"),
+        )
+        for value in ('"http://bridge.lan"', "{}", "null"):
+            with self.subTest(value=value):
+                self.write_policy(f'{{"allowed_servers": {value}}}')
+                self.assertEqual(load_security_policy().allowed_servers, ())
+
+    def test_only_listed_origins_are_reachable_in_local_only_mode(self) -> None:
+        self.write_policy(json.dumps({"allowed_servers": ["http://100.64.0.2:8765"]}))
+        self.assertFalse(network_allowed())
+        self.assertTrue(network_allowed(url="http://100.64.0.2:8765/api/leds/abc"))
+        for url in (
+            "http://100.64.0.2:8766/api/leds/abc",
+            "https://100.64.0.2:8765/api/leds/abc",
+            "https://bridge.sidepulse.io/api/leds/abc",
+            "http://100.64.0.2.evil.example:8765/",
+        ):
+            with self.subTest(url=url):
+                self.assertFalse(network_allowed(url=url))
+
+    def test_open_url_checks_the_request_target(self) -> None:
+        self.write_policy(json.dumps({"allowed_servers": ["http://127.0.0.1:8765"]}))
+        open_url(urllib.request.Request("http://127.0.0.1:8765/api/leds/abc"), timeout=1)
+        self.urlopen.assert_called_once()
+        with self.assertRaisesRegex(NetworkDisabledError, "allowed_servers.*https://example.com"):
+            open_url("https://example.com/x", timeout=1)
+        self.assertEqual(self.urlopen.call_count, 1)
+
+    def test_link_code_to_an_allowed_bridge_is_saved_with_that_server(self) -> None:
+        server = "http://127.0.0.1:8765"
+        self.write_policy(json.dumps({"allowed_servers": [server]}))
+        with patch.dict(os.environ, {"SIDEPULSE_SERVER": server}):
+            result = cmd_sidepulse_link(argparse.Namespace(relay_code="a" * 22))
+        self.assertEqual(result, 0)
+        config = json.loads(next(Path(self.tmp.name).rglob("relay.json")).read_text())
+        self.assertEqual((config["server"], config["outbound_channel"]), (server, "a" * 22))
+
+    def test_link_refusal_names_the_policy_line_to_add(self) -> None:
+        stderr = io.StringIO()
+        with patch.dict(os.environ, {"SIDEPULSE_SERVER": "http://127.0.0.1:8765"}), redirect_stderr(stderr):
+            self.assertEqual(cmd_sidepulse_link(argparse.Namespace(relay_code="a" * 22)), 1)
+        self.assertIn('"allowed_servers": ["http://127.0.0.1:8765"]', stderr.getvalue())
 
 if __name__ == "__main__":
     unittest.main()

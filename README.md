@@ -154,7 +154,8 @@ malformed file means the most restrictive settings:
 {
   "local_only": true,
   "readonly_fallback": false,
-  "source_label": "SidePulse"
+  "source_label": "SidePulse",
+  "allowed_servers": []
 }
 ```
 
@@ -167,6 +168,9 @@ malformed file means the most restrictive settings:
   policy. Enable it only where the policy permits it.
 - `source_label`: the name linked phones and relay receivers see, instead of
   the computer's hostname.
+- `allowed_servers`: origins (`scheme://host[:port]`) that stay reachable while
+  `local_only` is on, such as your own bridge (see "Self-hosted bridge"
+  below). Matching is exact; everything else remains blocked.
 
 When networking is enabled, relayed events carry only the agent status (event,
 session ids, tool name, computed status), never prompts, tool input/output,
@@ -357,6 +361,35 @@ service on either computer with:
 ```sh
 sidepulse service status
 ```
+
+#### Self-hosted bridge
+
+By default the relay goes through `bridge.sidepulse.io`. To keep it between your
+own computers, run the bridge yourself on one of them:
+
+```sh
+sidepulse bridge serve                          # 127.0.0.1:8765, this computer only
+sidepulse bridge serve --bind 100.64.0.2        # e.g. a Tailscale address
+sidepulse bridge serve --bind 0.0.0.0 --cert cert.pem --key key.pem   # HTTPS
+```
+
+It prints the `allowed_servers` entry and the `link` command to use. On each
+computer, add the bridge origin to `security.json`, then link with
+`SIDEPULSE_SERVER` set to it:
+
+```json
+{ "allowed_servers": ["http://100.64.0.2:8765"] }
+```
+
+```sh
+SIDEPULSE_SERVER=http://100.64.0.2:8765 sidepulse link             # receiving Mac
+SIDEPULSE_SERVER=http://100.64.0.2:8765 sidepulse link CODE        # sending computer
+```
+
+The bridge keeps nothing: each message reaches the receivers connected at that
+moment and is otherwise dropped. Plain HTTP is only as private as the network it
+crosses, so bind it to loopback, a VPN such as Tailscale, or use `--cert`/`--key`.
+It serves computer-to-computer relay only; the iOS app uses its own bridge.
 
 ## Battery LEDs
 
