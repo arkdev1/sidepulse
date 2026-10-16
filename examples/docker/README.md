@@ -15,3 +15,12 @@ Edit `program/LEDS.LED` (see LEDS_FORMAT.md, max 512 bytes / 20 lines) and
 the container copies it to the device within `POLL_SECONDS`. It refuses to
 start unless the volume label is a SidePulse one and `FIRMWARE.BIN` exists,
 and it never writes any file other than `LEDS.LED`.
+
+## TrueNAS app from the GUI
+
+`.github/workflows/docker.yml` publishes this image to
+`ghcr.io/<owner>/sidepulse-sync`. Make the package public once in GitHub
+(Packages > sidepulse-sync > Package settings), then in TrueNAS open
+Apps > Discover Apps > Custom App > Install via YAML and paste
+`truenas-app.yaml` with your device path. To change the LEDs, edit
+`SIDEPULSE_PROGRAM` from the app's Edit page; the app restarts and writes it.

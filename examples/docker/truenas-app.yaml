@@ -1,0 +1,18 @@
+# TrueNAS SCALE 24.10+: Apps > Discover Apps > Custom App > Install via YAML.
+# Replace the device path (ls -l /dev/disk/by-id/ | grep -v part), then edit
+# SIDEPULSE_PROGRAM from the app's Edit page to change the LEDs.
+services:
+  sidepulse:
+    image: ghcr.io/arkdev1/sidepulse-sync:latest
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    devices:
+      - "/dev/disk/by-id/usb-REPLACE_ME:/dev/sidepulse"
+    environment:
+      SIDEPULSE_PROGRAM: |-
+        #FF00FF 1s pulse
+        repeat

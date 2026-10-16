@@ -1,6 +1,8 @@
 #!/bin/sh
-# Copies /program/LEDS.LED to the device whenever it changes. Only LEDS.LED
-# is ever written; the device is checked to be a SidePulse volume first.
+# Copies the LED program to the device whenever it changes. The program comes
+# from SIDEPULSE_PROGRAM (set in the TrueNAS app form) or, when that is empty,
+# from /program/LEDS.LED. Only LEDS.LED is ever written; the device is checked
+# to be a SidePulse volume first.
 set -eu
 
 DEVICE=${SIDEPULSE_DEV:-/dev/sidepulse}
@@ -11,6 +13,11 @@ MAX_LINES=20
 export MTOOLS_SKIP_CHECK=1 MTOOLS_NO_VFAT=1
 
 log() { echo "sidepulse: $*"; }
+
+if [ -n "${SIDEPULSE_PROGRAM:-}" ]; then
+    PROGRAM=/tmp/LEDS.LED
+    printf '%s\n' "$SIDEPULSE_PROGRAM" > "$PROGRAM"
+fi
 
 check_device() {
     label=$(mlabel -s -i "$DEVICE" :: 2>/dev/null || true)
