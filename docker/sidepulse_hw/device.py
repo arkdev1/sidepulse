@@ -135,6 +135,7 @@ class Device:
             require(layout.find(b"FIRMWAREBIN") is not None, f"{self.path}: no FIRMWARE.BIN, not a SidePulse")
             self._led_entry(layout)
             self.led_count = LABELS[layout.label]
+            self.label = layout.label
 
     class _Opened:
         def __init__(self, device: "Device", flags: int) -> None:
@@ -190,6 +191,16 @@ class Device:
                 remaining -= length
                 cluster = layout.next_cluster(cluster)
             return b"".join(chunks).decode("utf-8", "replace")
+
+    def status(self) -> dict[str, str]:
+        """STATUS.TXT as key/value pairs; empty when it cannot be read."""
+
+        try:
+            text = self.read_file("STATUS.TXT")
+        except DeviceError:
+            return {}
+        pairs = (line.split(None, 1) for line in text.splitlines())
+        return {pair[0]: pair[1].strip() for pair in pairs if len(pair) == 2}
 
     def read_program(self) -> str:
         return self.read_file("LEDS.LED")

@@ -20,7 +20,7 @@ def make_image(directory, label, *, firmware=True, size=256 * 1024):
          "-d", "1", "-r", "1", "-c", "4", "-v", label, "::"],
         env=ENV, check=True,
     )
-    files = {"STATUS.TXT": b"fw 1.1.0\n" + b"x" * 3000 + b"\nend\n", "LEDS.LED": b"off\n", "INIT.LED": b"#FFFFFF\n"}
+    files = {"STATUS.TXT": b"fw 1.1.0\n" + b"x" * 3000 + b"\nserial SPD-000340\nend\n", "LEDS.LED": b"off\n", "INIT.LED": b"#FFFFFF\n"}
     if firmware:
         files["FIRMWARE.BIN"] = b"\x5a" * 4096
     for name, data in files.items():
@@ -87,6 +87,7 @@ class DeviceTests(unittest.TestCase):
         status = entry.read_file("STATUS.TXT")
         self.assertTrue(status.startswith("fw 1.1.0\n") and status.endswith("\nend\n"))
         self.assertEqual(status.encode(), read(path, "STATUS.TXT"))
+        self.assertEqual(entry.status()["serial"], "SPD-000340")
         subprocess.run(["mtools", "-c", "mdir", "-i", path, "::"], env=ENV, check=True,
                        capture_output=True)
 

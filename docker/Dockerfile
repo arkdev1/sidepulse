@@ -29,7 +29,9 @@ RUN python -m unittest discover -s tests
 FROM gcr.io/distroless/python3-debian12@sha256:2fdb05402a2cf21cf78fdb3ba4c5db167241e9e498140f5bf689d7efb773731f
 COPY --from=build /deps /deps
 COPY --from=build /app /app
-ENV PYTHONPATH=/deps:/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ARG SIDEPULSE_HW_COMMIT="local build"
+ENV PYTHONPATH=/deps:/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    SIDEPULSE_HW_COMMIT=${SIDEPULSE_HW_COMMIT}
 WORKDIR /app
 ENTRYPOINT ["python3", "-m", "sidepulse_hw"]
 CMD ["watch"]
