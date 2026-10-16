@@ -9,7 +9,9 @@ caller can reach FIRMWARE.BIN or INIT.LED.
 """
 from __future__ import annotations
 
+import errno
 import fcntl
+import mmap
 import os
 import stat
 import struct
@@ -81,9 +83,30 @@ def device_size(fd: int) -> int:
 
 
 def read_exact(fd: int, length: int, offset: int) -> bytes:
-    data = os.pread(fd, length, offset)
-    require(len(data) == length, "Short read; refusing to continue.")
-    return data
+    """Read whole, aligned sectors into a page-aligned buffer.
+
+    The device is opened with O_DIRECT, which needs both. Reading exactly the
+    sectors asked for matters: the firmware generates STATUS.TXT on the fly
+    and tracks which sectors the host touches.
+    """
+    start = offset // SECTOR * SECTOR
+    end = -(-(offset + length) // SECTOR) * SECTOR
+    buffer = mmap.mmap(-1, end - start)
+    try:
+        require(os.preadv(fd, [buffer], start) == end - start, "Short read; refusing to continue.")
+        return bytes(buffer[offset - start : offset - start + length])
+    finally:
+        buffer.close()
+
+
+def write_sector(fd: int, data: bytes, offset: int) -> None:
+    require(len(data) == SECTOR and offset % SECTOR == 0, "Unaligned write refused.")
+    buffer = mmap.mmap(-1, SECTOR)
+    try:
+        buffer.write(data)
+        require(os.pwritev(fd, [buffer], offset) == SECTOR, "Short write.")
+    finally:
+        buffer.close()
 
 
 def read_layout(fd: int, size: int) -> Layout:
@@ -138,15 +161,27 @@ class Device:
 
     class _Opened:
         def __init__(self, device: "Device", flags: int) -> None:
-            self.fd = os.open(device.path, flags | os.O_NOFOLLOW)
+            # O_DIRECT bypasses the host page cache in both directions: reads
+            # see what the firmware serves now, and each write reaches the
+            # device as exactly the 512-byte sector we mean, not as a 4 KB
+            # page carrying neighbouring sectors. Disk images (tests) on
+            # filesystems without O_DIRECT fall back to buffered I/O.
+            flags |= os.O_NOFOLLOW
+            if stat.S_ISBLK(os.stat(device.path).st_mode):
+                self.fd = os.open(device.path, flags | os.O_DIRECT)
+            else:
+                try:
+                    self.fd = os.open(device.path, flags | os.O_DIRECT)
+                except OSError as exc:
+                    if exc.errno != errno.EINVAL:
+                        raise
+                    self.fd = os.open(device.path, flags)
 
         def __enter__(self):
             try:
                 self.size = device_size(self.fd)
                 require(0 < self.size <= MAX_DISK_BYTES,
                         f"Refusing a {self.size:,}-byte disk; SidePulse volumes are under {MAX_DISK_BYTES:,}.")
-                # Read what the device holds now, not what the host cached earlier.
-                os.posix_fadvise(self.fd, 0, 0, os.POSIX_FADV_DONTNEED)
                 return self.fd, read_layout(self.fd, self.size)
             except BaseException:
                 os.close(self.fd)
@@ -232,7 +267,7 @@ class Device:
                                        (entry.sector_offset, bytes(directory))):
                     require(0 <= offset <= self._size_of(fd) - SECTOR and offset % SECTOR == 0,
                             "Write would be outside the device or unaligned.")
-                    require(os.pwrite(fd, sector, offset) == SECTOR, "Short write.")
+                    write_sector(fd, sector, offset)
                     os.fsync(fd)
             self._last_write = time.monotonic()
             return True
