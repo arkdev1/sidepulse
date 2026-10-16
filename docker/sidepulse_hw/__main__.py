@@ -68,10 +68,11 @@ MODELS = {"PULSEDOT": "SidePulse Dot", "SIDEPULSE": "SidePulse Pro"}
 
 def describe(text: str) -> str:
     text = normalize(text)
-    lines = text.strip().splitlines()
+    lines = [l for l in text.strip().splitlines() if not l.startswith("brightness ")] or [""]
     first = lines[0] if lines else ""
     more = f" (+{len(lines) - 1} lines)" if len(lines) > 1 else ""
-    return f"{len(text.encode())} bytes, {first!r}{more}"
+    level = next((l.split()[1] for l in text.splitlines() if l.startswith("brightness ")), None)
+    return f"{len(text.encode())} bytes, {first!r}{more}" + (f", brightness {level}" if level else "")
 
 
 def report_applied(device: Device, expected_len: int) -> None:

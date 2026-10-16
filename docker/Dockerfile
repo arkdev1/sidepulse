@@ -6,14 +6,15 @@ FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903c
 COPY docker/requirements.txt /tmp/requirements.txt
 # Debian packages are signed by Debian but not version-pinned: security
 # updates replace old versions, so pins would break rebuilds. binutils strips
-# wasmtime; mtools only builds test images and stays out of the final image.
+# wasmtime; mtools and openssl only serve the tests and stay out of the final image.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends binutils mtools \
+    && apt-get install -y --no-install-recommends binutils mtools openssl \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir --require-hashes --only-binary :all: \
         --target /deps -r /tmp/requirements.txt \
     && strip --strip-unneeded /deps/wasmtime/linux-*/_libwasmtime.so
 COPY docker/sidepulse_hw /app/sidepulse_hw
+COPY docker/sidepulse_truenas /app/sidepulse_truenas
 # The firmware's own LEDS.LED parser, shared with the main package.
 COPY src/sidepulse/resources/sdled.wasm /app/sidepulse_hw/sdled.wasm
 RUN python -m compileall -q /deps /app

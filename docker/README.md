@@ -44,6 +44,31 @@ the device is left as it was. From code:
 4. `sudo docker compose up -d --build`, then `sudo docker compose logs -f`.
 5. Edit `program/LEDS.LED` (see LEDS_FORMAT.md).
 
+## TrueNAS collector
+
+`sidepulse_truenas` runs from the same image as a second service (see
+`truenas-app.yaml`). It calls read-only TrueNAS API methods over `wss://`
+(JSON-RPC 2.0, TrueNAS 24.10+) and writes the program for the highest-priority
+state to the shared `/program/LEDS.LED`. It has network access and no device;
+`sidepulse_hw` has the device and no network.
+
+| State | Source | Default program |
+|---|---|---|
+| night | `NIGHT` window, default 23:00-07:00 | off |
+| critical | unhealthy pool, alert ERROR or above | red blink |
+| unreachable | API down for 3 polls, login or TLS failure | violet slow pulse |
+| activity | running job in `ACTIVITY_JOBS` (replication, cloud sync, cloud backup, rsync, scrub) | blue pulse |
+| update | `update.status` (or `update.check_available`), apps with `upgrade_available` | amber pulse |
+| ok | none of the above | green |
+
+Settings: `TRUENAS_HOST`, `TRUENAS_USERNAME`, `TRUENAS_API_KEY`,
+`TRUENAS_CERT_SHA256` (SHA-256 of the NAS certificate; the log prints it when
+it is missing or wrong, and nothing is sent to a server that does not match),
+`TZ`, `NIGHT` (empty disables it), `NIGHT_SHOWS_CRITICAL`, `BRIGHTNESS`
+(0-255, scales colors), `POLL_SECONDS` (30), `UPDATE_CHECK_MINUTES` (60),
+`ACTIVITY_JOBS`, and `PROGRAM_<STATE>` to replace any program. Programs are
+validated with the firmware parser at startup.
+
 ## Tests
 
     docker build --target test -f docker/Dockerfile .

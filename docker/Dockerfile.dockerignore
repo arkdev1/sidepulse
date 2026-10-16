@@ -4,3 +4,4 @@
 !docker/tests/*.py
 !src/sidepulse/resources/sdled.wasm
 !docker/requirements.txt
+!docker/sidepulse_truenas/*.py

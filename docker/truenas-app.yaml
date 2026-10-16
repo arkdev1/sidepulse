@@ -1,10 +1,35 @@
 # TrueNAS SCALE 24.10+: Apps > Discover Apps > Custom App > Install via YAML.
-# Replace the image digest with the one printed in the workflow run summary,
-# after checking it with gh attestation verify. A digest never changes, so
-# nothing new runs on the NAS until you paste a new one. Replace the device
-# path (ls -l /dev/disk/by-id/ | grep -v part), then edit SIDEPULSE_PROGRAM
-# from the app's Edit page to change the LEDs.
+# Replace the image digest (both services) with the one printed in the
+# workflow run summary, the device path, and the TrueNAS settings below.
+#
+# truenas reads pool health, alerts, running backups and available updates
+# through the TrueNAS API and writes the matching LED program to a shared
+# volume. It has network access but no access to the device.
+# sidepulse has the device but no network: it validates that program with the
+# firmware parser and writes it to the SidePulse.
 services:
+  truenas:
+    image: ghcr.io/arkdev1/sidepulse-hw@sha256:REPLACE_WITH_PUBLISHED_DIGEST
+    entrypoint: ["python3", "-m", "sidepulse_truenas"]
+    command: []
+    pull_policy: missing
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    volumes:
+      - program:/program
+    environment:
+      TRUENAS_HOST: "192.168.1.10"
+      TRUENAS_USERNAME: "sidepulse"
+      TRUENAS_API_KEY: "REPLACE_ME"
+      # The fingerprint is printed in this service's log on first start.
+      TRUENAS_CERT_SHA256: ""
+      TZ: "Europe/Rome"
+      NIGHT: "23:00-07:00"
+      BRIGHTNESS: "255"
+
   sidepulse:
     image: ghcr.io/arkdev1/sidepulse-hw@sha256:REPLACE_WITH_PUBLISHED_DIGEST
     pull_policy: missing
@@ -15,8 +40,11 @@ services:
     security_opt: ["no-new-privileges:true"]
     tmpfs: [/tmp]
     devices:
-      - "/dev/disk/by-id/usb-REPLACE_ME:/dev/sidepulse"
-    environment:
-      SIDEPULSE_PROGRAM: |-
-        #FF00FF 1s pulse
-        repeat
+      - source: /dev/disk/by-id/usb-REPLACE_ME
+        target: /dev/sidepulse
+        permissions: rw
+    volumes:
+      - program:/program:ro
+
+volumes:
+  program:
