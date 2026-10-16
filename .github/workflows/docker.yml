@@ -1,12 +1,12 @@
 name: Publish sidepulse-sync image
 
-# Builds examples/docker and publishes it to GitHub Container Registry, so a
+# Builds docker and publishes it to GitHub Container Registry, so a
 # TrueNAS Custom App can pull it without a local build.
 on:
   push:
     branches: [security-hardening, main]
     paths:
-      - "examples/docker/**"
+      - "docker/**"
       - ".github/workflows/docker.yml"
   workflow_dispatch:
 
@@ -26,7 +26,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
-          context: examples/docker
+          context: docker
           platforms: linux/amd64
           push: true
           tags: |
