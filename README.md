@@ -572,7 +572,9 @@ SidePulse Pro Eject Prevention keeps a SidePulse Pro in the built-in SD reader
 attached after macOS hibernate or lock-screen mount refusals. It overrides the
 macOS lock-screen eject for that card, so it is opt-in and only applies to
 volumes named like a SidePulse; every other SD card keeps the standard macOS
-behaviour. `auto` installs it system-wide when already running with system
+behaviour. While it runs it also refuses software ejects of the SidePulse card
+(Finder, `diskutil eject`): stop it with `sidepulse sdejectguard stop` first, or
+pull the card out. `auto` installs it system-wide when already running with system
 permissions, otherwise as a per-user LaunchAgent:
 
 ```sh
