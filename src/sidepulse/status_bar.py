@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import shlex
+import signal
 import subprocess
 import threading
 import time
@@ -7049,11 +7050,28 @@ def applescript_quote(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def install_termination_signals() -> None:
+    """Quit through NSApp on Ctrl-C and `kill`, so applicationWillTerminate_ cleans up.
+
+    Python signal handlers only run between bytecodes and never fire while
+    NSApplication.run() sits in the Cocoa event loop; MachSignals delivers the
+    signal to the run loop instead.
+    """
+    from PyObjCTools import MachSignals
+
+    def terminate(_signum: int) -> None:
+        NSApp.terminate_(None)
+
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        MachSignals.signal(signum, terminate)
+
+
 def run_status_bar(*, show_settings: bool = False) -> None:
     app = NSApplication.sharedApplication()
     controller = StatusBarController.alloc().init()
     controller.open_settings_on_launch = show_settings
     app.setDelegate_(controller)
+    install_termination_signals()
     app.run()
 
 
