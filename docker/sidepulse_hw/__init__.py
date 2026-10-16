@@ -2,8 +2,8 @@
 
 The validator runs the firmware's own LEDS.LED parser (sdled.wasm) in a
 sandboxed WebAssembly runtime, so a program is accepted only if the device
-would accept it. The writer edits the device's FAT volume with mtools and can
-only ever touch LEDS.LED.
+would accept it. The writer updates LEDS.LED in place on the unmounted device and
+can only ever touch that file.
 """
 from .program import ProgramError, preview, validate
 from .device import Device, DeviceError

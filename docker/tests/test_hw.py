@@ -10,12 +10,17 @@ from sidepulse_hw import device as device_module
 ENV = {**os.environ, "MTOOLS_SKIP_CHECK": "1"}
 
 
-def make_image(directory, label, *, firmware=True):
+def make_image(directory, label, *, firmware=True, size=256 * 1024):
+    """A FAT12 volume shaped like a SidePulse: one FAT, a tiny root directory."""
     path = os.path.join(directory, f"{label}.img")
     with open(path, "wb") as image:
-        image.truncate(1440 * 1024)
-    subprocess.run(["mformat", "-i", path, "-v", label, "::"], env=ENV, check=True)
-    files = {"LEDS.LED": b"off\n", "INIT.LED": b"#FFFFFF\n"}
+        image.truncate(size)
+    subprocess.run(
+        ["mformat", "-i", path, "-T", str(size // 512), "-h", "1", "-s", "32",
+         "-d", "1", "-r", "1", "-c", "4", "-v", label, "::"],
+        env=ENV, check=True,
+    )
+    files = {"STATUS.TXT": b"fw 1.1.0\n", "LEDS.LED": b"off\n", "INIT.LED": b"#FFFFFF\n"}
     if firmware:
         files["FIRMWARE.BIN"] = b"\x5a" * 4096
     for name, data in files.items():
@@ -60,14 +65,27 @@ class DeviceTests(unittest.TestCase):
 
     def test_writes_only_leds_led(self):
         path = make_image(self.tmp.name, "PulseDot")
-        firmware, init = read(path, "FIRMWARE.BIN"), read(path, "INIT.LED")
+        with open(path, "rb") as image:
+            before = image.read()
         device = Device(path)
         self.assertEqual(device.led_count, 2)
         self.assertTrue(device.write_program("#00FF00"))
         self.assertFalse(device.write_program("#00FF00"))
         self.assertEqual(read(path, "LEDS.LED"), b"#00FF00\n")
-        self.assertEqual(read(path, "FIRMWARE.BIN"), firmware)
-        self.assertEqual(read(path, "INIT.LED"), init)
+        self.assertEqual(device.read_program(), "#00FF00\n")
+        with open(path, "rb") as image:
+            after = image.read()
+        changed = {i // 512 for i in range(len(before)) if before[i] != after[i]}
+        entry = Device(path)
+        # Exactly two sectors: LEDS.LED's data and its directory entry's size.
+        self.assertEqual(len(changed), 2)
+        root_dir = [i for i in changed if after[i * 512 : i * 512 + 512].find(b"LEDS    LED") >= 0]
+        self.assertEqual(len(root_dir), 1)
+        self.assertEqual(read(path, "INIT.LED"), b"#FFFFFF\n")
+        self.assertEqual(read(path, "FIRMWARE.BIN"), b"\x5a" * 4096)
+        self.assertEqual(entry.read_file("STATUS.TXT"), "fw 1.1.0\n")
+        subprocess.run(["mtools", "-c", "mdir", "-i", path, "::"], env=ENV, check=True,
+                       capture_output=True)
 
     def test_invalid_program_leaves_device_unchanged(self):
         path = make_image(self.tmp.name, "SidePulse")
@@ -80,6 +98,17 @@ class DeviceTests(unittest.TestCase):
             Device(make_image(self.tmp.name, "DATA"))
         with self.assertRaises(DeviceError):
             Device(make_image(self.tmp.name, "PulseDot", firmware=False))
+
+    def test_refuses_large_disks(self):
+        big = os.path.join(self.tmp.name, "big")
+        os.mkdir(big)
+        with self.assertRaises(DeviceError):
+            Device(make_image(big, "PulseDot", size=1440 * 1024))
+
+    def test_reads_only_known_files(self):
+        device = Device(make_image(self.tmp.name, "SidePulse"))
+        with self.assertRaises(DeviceError):
+            device.read_file("FIRMWARE.BIN")
 
 
 if __name__ == "__main__":

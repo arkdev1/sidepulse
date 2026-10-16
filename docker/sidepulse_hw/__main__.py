@@ -43,7 +43,7 @@ def cmd_write(args) -> int:
 
 
 def cmd_read(args) -> int:
-    sys.stdout.write(Device(args.device).read_program())
+    sys.stdout.write(Device(args.device).read_file(args.file))
     return 0
 
 
@@ -102,7 +102,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--ms", type=int, default=2000)
     sub.add_argument("--step", type=int, default=250)
     add("write", cmd_write, "Validate and write LEDS.LED.", device=True)
-    add("read", cmd_read, "Print the device's LEDS.LED.", program=False, device=True)
+    sub = add("read", cmd_read, "Print LEDS.LED, INIT.LED or STATUS.TXT from the device.",
+              program=False, device=True)
+    sub.add_argument("--file", default="LEDS.LED", choices=("LEDS.LED", "INIT.LED", "STATUS.TXT"))
     sub = add("watch", cmd_watch, "Write the configured program whenever it changes.",
               program=False, device=True)
     sub.add_argument("--poll", type=float, default=float(os.environ.get("POLL_SECONDS", "2")))

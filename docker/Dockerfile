@@ -5,9 +5,10 @@
 FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89 AS build
 COPY docker/requirements.txt /tmp/requirements.txt
 # Debian packages are signed by Debian but not version-pinned: security
-# updates replace old versions, so pins would break rebuilds.
+# updates replace old versions, so pins would break rebuilds. binutils strips
+# wasmtime; mtools only builds test images and stays out of the final image.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends mtools binutils \
+    && apt-get install -y --no-install-recommends binutils mtools \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir --require-hashes --only-binary :all: \
         --target /deps -r /tmp/requirements.txt \
@@ -24,9 +25,8 @@ COPY docker/tests /app/tests
 WORKDIR /app
 RUN python -m unittest discover -s tests
 
-# No shell, no package manager: Python, glibc and the two copied pieces.
+# No shell, no package manager: Python, wasmtime and the tool.
 FROM gcr.io/distroless/python3-debian12@sha256:2fdb05402a2cf21cf78fdb3ba4c5db167241e9e498140f5bf689d7efb773731f
-COPY --from=build /usr/bin/mtools /usr/bin/mtools
 COPY --from=build /deps /deps
 COPY --from=build /app /app
 ENV PYTHONPATH=/deps:/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
