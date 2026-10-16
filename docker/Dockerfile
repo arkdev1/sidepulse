@@ -1,14 +1,31 @@
 # Build from the repository root: docker build -f docker/Dockerfile .
-FROM python:3.12-slim-bookworm
+# Only the files listed in Dockerfile.dockerignore reach the build.
+
+# Debian 12 and Python 3.11, matching the runtime image below.
+FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89 AS build
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends mtools \
+    && apt-get install -y --no-install-recommends mtools binutils \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir wasmtime==49.0.0
-WORKDIR /app
+    && pip install --no-cache-dir --target /deps wasmtime==49.0.0 \
+    && strip --strip-unneeded /deps/wasmtime/linux-*/_libwasmtime.so
 COPY docker/sidepulse_hw /app/sidepulse_hw
 # The firmware's own LEDS.LED parser, shared with the main package.
 COPY src/sidepulse/resources/sdled.wasm /app/sidepulse_hw/sdled.wasm
+RUN python -m compileall -q /deps /app
+ENV PYTHONPATH=/deps:/app
+
+# docker build --target test runs the suite; the published image skips it.
+FROM build AS test
 COPY docker/tests /app/tests
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-ENTRYPOINT ["python", "-m", "sidepulse_hw"]
+WORKDIR /app
+RUN python -m unittest discover -s tests
+
+# No shell, no package manager: Python, glibc and the two copied pieces.
+FROM gcr.io/distroless/python3-debian12@sha256:2fdb05402a2cf21cf78fdb3ba4c5db167241e9e498140f5bf689d7efb773731f
+COPY --from=build /usr/bin/mtools /usr/bin/mtools
+COPY --from=build /deps /deps
+COPY --from=build /app /app
+ENV PYTHONPATH=/deps:/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+ENTRYPOINT ["python3", "-m", "sidepulse_hw"]
 CMD ["watch"]

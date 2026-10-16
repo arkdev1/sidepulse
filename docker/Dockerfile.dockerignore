@@ -1,0 +1,5 @@
+# The build context is the repository root; send only what the image needs.
+*
+!docker/sidepulse_hw/*.py
+!docker/tests/*.py
+!src/sidepulse/resources/sdled.wasm

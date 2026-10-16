@@ -23,17 +23,18 @@ class DeviceError(RuntimeError):
     pass
 
 
-def _mtools(*args: str) -> str:
+def _mtools(command: str, *args: str) -> str:
     env = {**os.environ, **MTOOLS_ENV}
     try:
+        # One binary for every command, so the image needs no symlinks.
         result = subprocess.run(
-            args, env=env, capture_output=True, text=True, timeout=15, check=False
+            ["mtools", "-c", command, *args], env=env, capture_output=True, text=True, timeout=15, check=False
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise DeviceError(f"{args[0]} failed: {exc}") from exc
+        raise DeviceError(f"{command} failed: {exc}") from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
-        raise DeviceError(f"{args[0]} failed: {detail}")
+        raise DeviceError(f"{command} failed: {detail}")
     return result.stdout
 
 

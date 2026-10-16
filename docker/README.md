@@ -14,7 +14,10 @@ a program the firmware would reject, or any file other than `LEDS.LED`.
   `SidePulse` label and a `FIRMWARE.BIN`, identical programs are skipped and
   writes are at most one per second.
 - **Container**: no network, no capabilities, read-only root, access to that
-  one block device only.
+  one block device only. The image is distroless (no shell, no package
+  manager): Python, the stripped wasmtime library and the mtools binary,
+  about 26 MB compressed. Base images are pinned by digest, and the build
+  context is limited to the files in `Dockerfile.dockerignore`.
 
 ## Commands
 
@@ -52,5 +55,6 @@ Apps > Discover Apps > Custom App > Install via YAML and paste
 
 ## Tests
 
-    docker build -t sidepulse-hw -f docker/Dockerfile .
-    docker run --rm --entrypoint python sidepulse-hw -m unittest discover -s tests
+    docker build --target test -f docker/Dockerfile .
+
+The workflow runs this before publishing, and does not publish on failure.
