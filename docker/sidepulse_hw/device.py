@@ -26,6 +26,7 @@ BLKGETSIZE64 = 0x80081272  # Linux <linux/fs.h>: _IOR(0x12, 114, size_t)
 LABELS = {"PULSEDOT": 2, "SIDEPULSE": 8}
 LED_NAME = b"LEDS    LED"
 READABLE = {"LEDS.LED": LED_NAME, "INIT.LED": b"INIT    LED", "STATUS.TXT": b"STATUS  TXT"}
+MAX_READ_BYTES = 4096
 MIN_INTERVAL_SECONDS = 1.0
 
 
@@ -177,10 +178,18 @@ class Device:
         with self._open(os.O_RDONLY) as (fd, layout):
             entry = layout.find(short)
             require(entry is not None, f"{name} not found.")
+            require(entry.size <= MAX_READ_BYTES, f"{name} is larger than {MAX_READ_BYTES} bytes; not read.")
             cluster_bytes = layout.sectors_per_cluster * SECTOR
-            require(2 <= entry.cluster < layout.clusters + 2 and entry.size <= cluster_bytes,
-                    f"{name} spans more than one cluster; not read.")
-            return read_exact(fd, entry.size, layout.cluster_offset(entry.cluster)).decode("utf-8", "replace")
+            chunks, cluster, remaining, seen = [], entry.cluster, entry.size, set()
+            while remaining > 0:
+                require(2 <= cluster < layout.clusters + 2 and cluster not in seen,
+                        f"{name} has a broken cluster chain; not read.")
+                seen.add(cluster)
+                length = min(remaining, cluster_bytes)
+                chunks.append(read_exact(fd, length, layout.cluster_offset(cluster)))
+                remaining -= length
+                cluster = layout.next_cluster(cluster)
+            return b"".join(chunks).decode("utf-8", "replace")
 
     def read_program(self) -> str:
         return self.read_file("LEDS.LED")
