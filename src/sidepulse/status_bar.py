@@ -620,6 +620,7 @@ class StatusBarController(NSObject):
         self.device_errors = {}
         self.leds_enabled = True
         self.led_sync_in_flight = False
+        self.terminating = False
         self.last_led_error = None
         self.last_led_display_kind = LED_DISPLAY_AGENT
         self.last_connected_device_signature = None
@@ -1143,6 +1144,8 @@ class StatusBarController(NSObject):
         NSApp.terminate_(self)
 
     def applicationWillTerminate_(self, _notification):
+        self.terminating = True
+        self.clear_leds_on_quit()
         self.stop_status_icon_animation()
         self.power_source_notifier.stop()
         if self.battery_timer is not None:
@@ -1894,6 +1897,22 @@ class StatusBarController(NSObject):
             self.set_settings_message(f"{name}: {label}.")
         self.refresh_settings_window()
         self.refresh_(None)
+
+    def clear_leds_on_quit(self, *, wait_seconds: float = 1.0) -> None:
+        """Turn off the local LEDs this app drives, so they do not keep showing a stale state."""
+        if not self.leds_enabled:
+            return
+        # A sync started just before quitting would overwrite the "off".
+        deadline = time.monotonic() + wait_seconds
+        while self.led_sync_in_flight and time.monotonic() < deadline:
+            time.sleep(0.02)
+        for target in self.current_led_targets():
+            try:
+                write_led_program("off", device_path=target)
+            except Exception as exc:
+                log_status_bar(f"quit clear error target={target}: {exc}")
+            else:
+                log_status_bar(f"quit clear target={target}")
 
     def clear_manual_device_display(self, device: StatusBarDevice | None) -> str | None:
         if device is None or not device.connected:
@@ -3001,7 +3020,7 @@ class StatusBarController(NSObject):
         battery_snapshot: BatterySnapshot | None,
         display_kind: str,
     ) -> None:
-        if not self.leds_enabled:
+        if not self.leds_enabled or self.terminating:
             return
 
         self.sync_virtual_status_device(mode, battery_snapshot)
