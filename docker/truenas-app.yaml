@@ -18,10 +18,14 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     tmpfs: [/tmp]
+    # Reaches the TrueNAS API on this host through the app's own bridge
+    # gateway: no host networking, and the traffic never leaves the NAS.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - program:/program
     environment:
-      TRUENAS_HOST: "192.168.1.10"
+      TRUENAS_HOST: "host.docker.internal"
       TRUENAS_USERNAME: "sidepulse"
       TRUENAS_API_KEY: "REPLACE_ME"
       # The fingerprint is printed in this service's log on first start.
