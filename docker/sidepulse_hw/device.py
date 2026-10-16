@@ -128,7 +128,6 @@ class Device:
     def __init__(self, path: str | os.PathLike[str]) -> None:
         self.path = os.fspath(path)
         self._lock = threading.Lock()
-        self._last_text: str | None = None
         self._last_write = 0.0
         with self._open(os.O_RDONLY) as (_, layout):
             require(layout.label in LABELS, f"{self.path}: volume label {layout.label!r} is not a SidePulse")
@@ -206,13 +205,18 @@ class Device:
         return self.read_file("LEDS.LED")
 
     def write_program(self, text: str) -> bool:
-        """Validate and write. Returns False when the device already has it."""
+        """Validate and write. Returns False when the device already shows it."""
 
         program: Program = validate(text, self.led_count)
         payload = program.text.encode("ascii")
         with self._lock:
-            if program.text == self._last_text:
-                return False
+            # Compare with the device, not with our last write: another writer
+            # (docker exec, a Mac) may have changed it since.
+            try:
+                if self.read_program() == program.text:
+                    return False
+            except DeviceError:
+                pass
             wait = self._last_write + MIN_INTERVAL_SECONDS - time.monotonic()
             if wait > 0:
                 time.sleep(wait)
@@ -230,7 +234,6 @@ class Device:
                             "Write would be outside the device or unaligned.")
                     require(os.pwrite(fd, sector, offset) == SECTOR, "Short write.")
                     os.fsync(fd)
-            self._last_text = program.text
             self._last_write = time.monotonic()
             return True
 

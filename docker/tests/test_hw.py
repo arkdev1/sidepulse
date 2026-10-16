@@ -91,6 +91,14 @@ class DeviceTests(unittest.TestCase):
         subprocess.run(["mtools", "-c", "mdir", "-i", path, "::"], env=ENV, check=True,
                        capture_output=True)
 
+    def test_rewrites_after_another_writer(self):
+        path = make_image(self.tmp.name, "PulseDot")
+        first, other = Device(path), Device(path)
+        self.assertTrue(first.write_program("#00FF00"))
+        self.assertTrue(other.write_program("#8000FF"))
+        self.assertTrue(first.write_program("#00FF00"))
+        self.assertEqual(read(path, "LEDS.LED"), b"#00FF00\n")
+
     def test_invalid_program_leaves_device_unchanged(self):
         path = make_image(self.tmp.name, "SidePulse")
         with self.assertRaises(ProgramError):
