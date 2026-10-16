@@ -1,11 +1,15 @@
 # Drives a SidePulse device from a container without mounting it on the host.
-# The container edits the FAT volume directly with mtools, so nothing appears
-# under /mnt and the host never needs a mount. Set SIDEPULSE_DEVICE in .env to
-# the stable /dev/disk/by-id path of the device, not /dev/sdX.
+# Programs are checked with the firmware's own parser before anything is
+# written, and the container edits the FAT volume directly with mtools, so
+# nothing appears under /mnt and the host never needs a mount. Set
+# SIDEPULSE_DEVICE in .env to the stable /dev/disk/by-id path of the device,
+# not /dev/sdX.
 services:
   sidepulse:
-    build: .
-    image: sidepulse-sync:local
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: sidepulse-hw:local
     container_name: sidepulse
     restart: unless-stopped
     network_mode: none

@@ -1,8 +1,37 @@
-# SidePulse from a container (TrueNAS, any Linux host)
+# sidepulse-hw: SidePulse from a container (TrueNAS, any Linux host)
 
-The container writes `LEDS.LED` straight into the device's FAT volume with
-mtools. The host never mounts the device, and the container has no network,
-no capabilities, a read-only root and access to that one block device only.
+`sidepulse_hw` is a small Python tool and SDK that validates LED programs and
+writes them to a SidePulse Dot or Pro. It is the only thing that touches the
+hardware, so anything built on top of it (a script, a web page) cannot write
+a program the firmware would reject, or any file other than `LEDS.LED`.
+
+- **Validation** runs the firmware's own parser (`sdled.wasm`, shared with
+  the main package) in a sandboxed WebAssembly runtime, plus the 512 byte /
+  20 line limits and a printable-ASCII check. Errors report line and column.
+- **Writing** edits the FAT volume directly with mtools, so the host never
+  mounts it. The target is fixed to `LEDS.LED`; `FIRMWARE.BIN` and
+  `INIT.LED` are unreachable. The device must have a `PulseDot` or
+  `SidePulse` label and a `FIRMWARE.BIN`, identical programs are skipped and
+  writes are at most one per second.
+- **Container**: no network, no capabilities, read-only root, access to that
+  one block device only.
+
+## Commands
+
+    python -m sidepulse_hw validate [--leds 2|8] FILE|-
+    python -m sidepulse_hw preview  [--leds 2|8] FILE|-    # colors over time
+    python -m sidepulse_hw write    [--device DEV] FILE|-
+    python -m sidepulse_hw read     [--device DEV]
+    python -m sidepulse_hw watch    [--device DEV]         # container default
+
+`watch` writes `SIDEPULSE_PROGRAM` when set, otherwise
+`/program/LEDS.LED`, whenever it changes; rejected programs are logged and
+the device is left as it was. From code:
+
+    from sidepulse_hw import Device, validate, preview
+    Device("/dev/sidepulse").write_program("#FF00FF 1s pulse\nrepeat")
+
+## With docker compose
 
 1. Unmount the device if you mounted it by hand: `sudo umount /mnt/SidePulse`.
    Writing while the host also has it mounted corrupts the volume.
@@ -10,17 +39,18 @@ no capabilities, a read-only root and access to that one block device only.
    `ls -l /dev/disk/by-id/ | grep -v part`
 3. `cp .env.example .env` and set `SIDEPULSE_DEVICE` to that path.
 4. `sudo docker compose up -d --build`, then `sudo docker compose logs -f`.
-
-Edit `program/LEDS.LED` (see LEDS_FORMAT.md, max 512 bytes / 20 lines) and
-the container copies it to the device within `POLL_SECONDS`. It refuses to
-start unless the volume label is a SidePulse one and `FIRMWARE.BIN` exists,
-and it never writes any file other than `LEDS.LED`.
+5. Edit `program/LEDS.LED` (see LEDS_FORMAT.md).
 
 ## TrueNAS app from the GUI
 
-`.github/workflows/docker.yml` publishes this image to
-`ghcr.io/<owner>/sidepulse-sync`. Make the package public once in GitHub
-(Packages > sidepulse-sync > Package settings), then in TrueNAS open
+`.github/workflows/docker.yml` publishes the image to
+`ghcr.io/<owner>/sidepulse-hw`. Make the package public once in GitHub
+(Packages > sidepulse-hw > Package settings), then in TrueNAS open
 Apps > Discover Apps > Custom App > Install via YAML and paste
 `truenas-app.yaml` with your device path. To change the LEDs, edit
 `SIDEPULSE_PROGRAM` from the app's Edit page; the app restarts and writes it.
+
+## Tests
+
+    docker build -t sidepulse-hw -f docker/Dockerfile .
+    docker run --rm --entrypoint python sidepulse-hw -m unittest discover -s tests

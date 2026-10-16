@@ -1,4 +1,4 @@
-name: Publish sidepulse-sync image
+name: Publish sidepulse-hw image
 
 # Builds docker and publishes it to GitHub Container Registry, so a
 # TrueNAS Custom App can pull it without a local build.
@@ -7,6 +7,7 @@ on:
     branches: [security-hardening, main]
     paths:
       - "docker/**"
+      - "src/sidepulse/resources/sdled.wasm"
       - ".github/workflows/docker.yml"
   workflow_dispatch:
 
@@ -26,9 +27,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
-          context: docker
+          context: .
+          file: docker/Dockerfile
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/sidepulse-sync:latest
-            ghcr.io/${{ github.repository_owner }}/sidepulse-sync:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/sidepulse-hw:latest
+            ghcr.io/${{ github.repository_owner }}/sidepulse-hw:${{ github.sha }}

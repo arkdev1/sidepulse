@@ -3,7 +3,7 @@
 # SIDEPULSE_PROGRAM from the app's Edit page to change the LEDs.
 services:
   sidepulse:
-    image: ghcr.io/arkdev1/sidepulse-sync:latest
+    image: ghcr.io/arkdev1/sidepulse-hw:latest
     restart: unless-stopped
     network_mode: none
     read_only: true
