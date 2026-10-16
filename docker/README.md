@@ -46,12 +46,25 @@ the device is left as it was. From code:
 
 ## TrueNAS app from the GUI
 
-`.github/workflows/docker.yml` publishes the image to
-`ghcr.io/<owner>/sidepulse-hw`. Make the package public once in GitHub
-(Packages > sidepulse-hw > Package settings), then in TrueNAS open
-Apps > Discover Apps > Custom App > Install via YAML and paste
-`truenas-app.yaml` with your device path. To change the LEDs, edit
-`SIDEPULSE_PROGRAM` from the app's Edit page; the app restarts and writes it.
+`.github/workflows/docker.yml` tests the image, publishes it to
+`ghcr.io/<owner>/sidepulse-hw:<commit>` and attaches a signed build-provenance
+attestation. Actions are pinned by commit, wasmtime by wheel hash
+(`requirements.txt`), base images by digest; there is no `latest` tag and no
+shared build cache.
+
+1. Make the package public once in GitHub (Packages > sidepulse-hw > Package
+   settings), or add a read-only registry credential in TrueNAS.
+2. Take the digest from the workflow run summary and verify it:
+   `gh attestation verify oci://ghcr.io/<owner>/sidepulse-hw@sha256:... --owner <owner>`
+3. In TrueNAS open Apps > Discover Apps > Custom App > Install via YAML and
+   paste `truenas-app.yaml` with that digest and your device path.
+4. To change the LEDs, edit `SIDEPULSE_PROGRAM` from the app's Edit page.
+
+The NAS only ever runs the digest you pasted, so a later publish (or a
+compromised GitHub account) changes nothing until you verify and paste a new
+one. Keep 2FA or a passkey on the GitHub account: the container cannot reach
+the NAS or the network, but it does have raw access to the SidePulse, and
+its promise to write only `LEDS.LED` holds only for code you published.
 
 ## Tests
 

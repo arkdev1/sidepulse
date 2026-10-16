@@ -1,9 +1,13 @@
 # TrueNAS SCALE 24.10+: Apps > Discover Apps > Custom App > Install via YAML.
-# Replace the device path (ls -l /dev/disk/by-id/ | grep -v part), then edit
-# SIDEPULSE_PROGRAM from the app's Edit page to change the LEDs.
+# Replace the image digest with the one printed in the workflow run summary,
+# after checking it with gh attestation verify. A digest never changes, so
+# nothing new runs on the NAS until you paste a new one. Replace the device
+# path (ls -l /dev/disk/by-id/ | grep -v part), then edit SIDEPULSE_PROGRAM
+# from the app's Edit page to change the LEDs.
 services:
   sidepulse:
-    image: ghcr.io/arkdev1/sidepulse-hw:latest
+    image: ghcr.io/arkdev1/sidepulse-hw@sha256:REPLACE_WITH_PUBLISHED_DIGEST
+    pull_policy: missing
     restart: unless-stopped
     network_mode: none
     read_only: true

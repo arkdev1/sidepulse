@@ -3,10 +3,14 @@
 
 # Debian 12 and Python 3.11, matching the runtime image below.
 FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89 AS build
+COPY docker/requirements.txt /tmp/requirements.txt
+# Debian packages are signed by Debian but not version-pinned: security
+# updates replace old versions, so pins would break rebuilds.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends mtools binutils \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir --target /deps wasmtime==49.0.0 \
+    && pip install --no-cache-dir --require-hashes --only-binary :all: \
+        --target /deps -r /tmp/requirements.txt \
     && strip --strip-unneeded /deps/wasmtime/linux-*/_libwasmtime.so
 COPY docker/sidepulse_hw /app/sidepulse_hw
 # The firmware's own LEDS.LED parser, shared with the main package.

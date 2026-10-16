@@ -1,0 +1,5 @@
+# pip install --require-hashes: only these exact wheels are accepted.
+# Hashes from https://pypi.org/pypi/wasmtime/49.0.0/json (glibc x86_64, aarch64).
+wasmtime==49.0.0 \
+    --hash=sha256:94f0288f9e1c33924995a72bb769f4c4e2885002391589dd6992cdaa35d1990a \
+    --hash=sha256:263b924576d9519c43d5a1acff50a03ab03209d16d26c53543c9ab9a409fb93f

@@ -3,3 +3,4 @@
 !docker/sidepulse_hw/*.py
 !docker/tests/*.py
 !src/sidepulse/resources/sdled.wasm
+!docker/requirements.txt

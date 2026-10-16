@@ -1,7 +1,8 @@
 name: Publish sidepulse-hw image
 
-# Builds docker and publishes it to GitHub Container Registry, so a
-# TrueNAS Custom App can pull it without a local build.
+# Tests the docker/ tool and publishes the image to GitHub Container
+# Registry with a signed build-provenance attestation. Actions are pinned by
+# commit, because a moved tag would run with permission to publish.
 on:
   push:
     branches: [security-hardening, main]
@@ -11,38 +12,71 @@ on:
       - ".github/workflows/docker.yml"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
+permissions: {}
+
+concurrency:
+  group: docker-image
+  cancel-in-progress: false
 
 jobs:
   image:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/sidepulse-hw
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/setup-buildx-action@v3
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Test
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: docker/Dockerfile
           target: test
           platforms: linux/amd64
           push: false
-          cache-to: type=gha,mode=max
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish
-        uses: docker/build-push-action@v6
+        id: publish
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: docker/Dockerfile
           platforms: linux/amd64
           push: true
-          cache-from: type=gha
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/sidepulse-hw:latest
-            ghcr.io/${{ github.repository_owner }}/sidepulse-hw:${{ github.sha }}
+          provenance: false
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+      - name: Summary
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          {
+            echo "### sidepulse-hw published"
+            echo
+            echo "For truenas-app.yaml:"
+            echo
+            echo '```'
+            echo "image: ${IMAGE}@${DIGEST}"
+            echo '```'
+            echo
+            echo "Verify before using it:"
+            echo
+            echo '```'
+            echo "gh attestation verify oci://${IMAGE}@${DIGEST} --owner ${GITHUB_REPOSITORY_OWNER}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
