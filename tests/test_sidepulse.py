@@ -5852,6 +5852,27 @@ class AgentMonitorTests(unittest.TestCase):
                 "brightness 128\n#123456",
             )
 
+            # An edit made in the app reaches the file, which is what the next
+            # start reads back; a later save with no change leaves it alone.
+            animation_id = next(iter(reloaded.custom_agent_animations))
+            edited = reloaded.with_custom_agent_animation(
+                animation_id,
+                name="Edited",
+                program="brightness 64\n#654321\nroll 2s\nrepeat",
+            )
+            save_settings(edited, settings_path)
+            self.assertEqual(
+                custom_path.read_text(),
+                "brightness 64\n#654321\nroll 2s\nrepeat\n",
+            )
+            self.assertEqual(
+                load_settings(settings_path).agent_animation(AgentMode.BLOCKED_ERROR).custom_program,
+                "brightness 64\n#654321\nroll 2s\nrepeat",
+            )
+            before = custom_path.stat()
+            save_settings(load_settings(settings_path), settings_path)
+            self.assertEqual(custom_path.stat().st_mtime_ns, before.st_mtime_ns)
+
     def test_agent_animation_catalog_is_shared_by_every_state(self) -> None:
         settings = AgentMonitorSettings()
         animation_id = custom_agent_animation_id(
@@ -7232,6 +7253,84 @@ class AgentMonitorTests(unittest.TestCase):
         self.assertEqual(snapshot.aggregate.active_count, 0)
         self.assertEqual(snapshot.statuses[0].event_name, "PostToolUse")
 
+    def test_working_from_a_prompt_or_notification_decays_too(self) -> None:
+        now = datetime.now(timezone.utc)
+        old = now - timedelta(seconds=collector_module.POST_TOOL_WORKING_VISIBLE_SECONDS + 1)
+        statuses = tuple(
+            AgentStatus(
+                provider="claude",
+                agent_id=f"claude:session:{event_name}",
+                display_name=event_name,
+                mode=AgentMode.WORKING,
+                updated_at=old,
+                event_name=event_name,
+                session_id=event_name,
+            )
+            for event_name in ("UserPromptSubmit", "SubagentStart", "Notification")
+        )
+
+        snapshot = collector_module.snapshot_from_statuses(
+            statuses,
+            sources=(),
+            collected_at=now,
+            stale_after_seconds=3600,
+            tool_running_timeout_seconds=0,
+            completed_visible_seconds=20 * 60,
+            idle_visible_seconds=0,
+        )
+
+        self.assertEqual(snapshot.aggregate.mode, AgentMode.COMPLETED)
+        self.assertEqual(snapshot.aggregate.active_count, 0)
+
+    def test_context_compaction_does_not_change_the_agent_status(self) -> None:
+        session_id = "compacting-session"
+
+        def record(event_name: str, logged_at: datetime | None = None, **extra):
+            payload = {"hook_event_name": event_name, "session_id": session_id, **extra}
+            line = format_hook_payload(
+                "claude",
+                json.dumps(payload),
+                logged_at=(logged_at or datetime.now(timezone.utc)).isoformat(),
+                include_origin=False,
+            )
+            parsed = parse_log_line("claude", json.dumps(line))
+            self.assertIsNotNone(parsed, event_name)
+            return parsed
+
+        for event_name in ("PreCompact", "PostCompact"):
+            self.assertIsNone(collector_module.mode_for_event(record(event_name)), event_name)
+        self.assertIsNone(
+            collector_module.mode_for_event(record("SessionStart", source="compact"))
+        )
+        self.assertEqual(
+            collector_module.mode_for_event(record("SessionStart", source="startup")),
+            AgentMode.IDLE_READY,
+        )
+        self.assertEqual(
+            collector_module.mode_for_event(record("SessionStart")),
+            AgentMode.IDLE_READY,
+        )
+
+        # The sequence Claude Code emits around a compaction: the status the
+        # session had before (a tool result) stays and decays on its own.
+        monitor = LiveAgentMonitor()
+        started = datetime.now(timezone.utc) - timedelta(minutes=5)
+        for offset, (event_name, extra) in enumerate(
+            (
+                ("PostToolUse", {"tool_name": "Bash", "tool_response": "{}"}),
+                ("PreCompact", {}),
+                ("SessionStart", {"source": "compact"}),
+                ("PostCompact", {}),
+            )
+        ):
+            monitor.ingest_record(
+                record(event_name, started + timedelta(seconds=offset), **extra)
+            )
+
+        snapshot = monitor.snapshot()
+        self.assertEqual(snapshot.aggregate.mode, AgentMode.COMPLETED)
+        self.assertEqual(snapshot.statuses[0].event_name, "PostToolUse")
+
     def test_internal_codex_helper_sessions_are_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "codex.jsonl"
@@ -8217,12 +8316,13 @@ team id YOUR_TEAM_ID, push key '/path/to/AuthKey_YOUR_KEY_ID.p8'
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "claude.jsonl"
             session_id = "1ca4348e-2aec-4147-9e81-d7d56364d257"
+            now = datetime.now(timezone.utc)
             log.write_text(
                 "\n".join(
                     [
                         json.dumps(
                             {
-                                "logged_at": "2026-06-22T07:20:00Z",
+                                "logged_at": (now - timedelta(seconds=65)).isoformat(),
                                 "hook_event_name": "UserPromptSubmit",
                                 "session_id": session_id,
                                 "cwd": "/Users/pero/pgit/sdstatus_bitbang",
@@ -8231,7 +8331,7 @@ team id YOUR_TEAM_ID, push key '/path/to/AuthKey_YOUR_KEY_ID.p8'
                         ),
                         json.dumps(
                             {
-                                "logged_at": "2026-06-22T07:24:05Z",
+                                "logged_at": (now - timedelta(seconds=5)).isoformat(),
                                 "hook_event_name": "UserPromptSubmit",
                                 "session_id": session_id,
                                 "cwd": "/Users/pero/pgit/sdstatus_bitbang",

@@ -1091,7 +1091,11 @@ def mode_for_event(record: HookEvent) -> AgentMode | None:
         if _tool_response_looks_failed(raw.get("tool_response")):
             return AgentMode.BLOCKED_ERROR
         return AgentMode.WORKING
-    if event in {"UserPromptSubmit", "PreCompact", "PostCompact", "SubagentStart"}:
+    if event in {"PreCompact", "PostCompact"}:
+        # Context compaction says nothing about what the agent is doing; the
+        # status it had before stays, and decays on its own if nothing follows.
+        return None
+    if event in {"UserPromptSubmit", "SubagentStart"}:
         return AgentMode.WORKING
     if event in {"Stop", "SubagentStop"}:
         if _assistant_message_asks_question(raw.get("last_assistant_message")):
@@ -1100,6 +1104,8 @@ def mode_for_event(record: HookEvent) -> AgentMode | None:
     if event in {"SessionEnd"}:
         return AgentMode.COMPLETED
     if event == "SessionStart":
+        if str(raw.get("source", "")).strip().lower() == "compact":
+            return None  # the same session continues after compaction
         return AgentMode.IDLE_READY
     return None
 
@@ -1312,9 +1318,12 @@ def status_for_snapshot(
     *,
     post_tool_working_visible_seconds: float,
 ) -> AgentStatus:
+    # A "working" status is only a promise that more events follow. When none
+    # do within the window (the agent stopped without a Stop hook, the session
+    # was closed, a prompt or compaction was the last thing seen), show it as
+    # done rather than keeping the LEDs busy until the idle timeout.
     if (
         status.mode == AgentMode.WORKING
-        and status.event_name == "PostToolUse"
         and post_tool_working_visible_seconds >= 0
         and status.age_seconds(now) > post_tool_working_visible_seconds
     ):

@@ -1032,11 +1032,17 @@ def save_settings(
                 animation_id
             )
             animation_path = animation_dir / file_name
-            if not animation_path.exists():
-                animation_path.write_text(
-                    normalize_animation_file_program(animation.program) + "\n",
-                    encoding="utf-8",
+            program = normalize_animation_file_program(animation.program)
+            try:
+                current = normalize_animation_file_program(
+                    animation_path.read_text(encoding="utf-8")
                 )
+            except OSError:
+                current = None
+            # The file is what load_settings reads back, so an edit made in
+            # the editor has to reach it; settings.json keeps only the name.
+            if current != program:
+                animation_path.write_text(program + "\n", encoding="utf-8")
     target.write_text(json.dumps(settings.to_dict(), indent=2, sort_keys=True) + "\n")
     return target
 
