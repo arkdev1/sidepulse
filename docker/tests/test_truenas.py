@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from sidepulse_hw.program import validate
 from sidepulse_truenas import collector
@@ -250,6 +251,28 @@ class DecideTests(unittest.TestCase):
             write_program(Path(path), "off\n")
             self.assertEqual(Path(path).read_text(), "off\n")
             self.assertEqual(os.listdir(directory), ["LEDS.LED"])
+
+    def test_device_answer_is_logged_by_program_digest(self):
+        from pathlib import Path
+        from sidepulse_hw import channel
+        from sidepulse_truenas import __main__ as main_module
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "LEDS.LED"
+            lines = []
+            with patch.object(main_module, "log", lines.append):
+                write_program(path, "#00FF00\n")
+                self.assertEqual(main_module.report_device_answer(path, "#00FF00\n", timeout=0.3), "no-answer")
+                channel.write_result(path, channel.digest("off\n"), "applied", "stale answer")
+                self.assertEqual(main_module.report_device_answer(path, "#00FF00\n", timeout=0.3), "no-answer")
+                channel.write_result(path, channel.digest("#00FF00\n"), "rejected", "line 1: bad color")
+                self.assertEqual(main_module.report_device_answer(path, "#00FF00\n", timeout=0.3), "rejected")
+                channel.write_result(path, channel.digest("#00FF00\n"), "applied", "leds_len=7")
+                self.assertEqual(main_module.report_device_answer(path, "#00FF00\n", timeout=0.3), "applied")
+            self.assertEqual([line.split()[0] for line in lines], ["WARN", "WARN", "ERROR", "INFO"])
+            self.assertIn("sidepulse service", lines[0])
+            self.assertIn("bad color", lines[2])
+            self.assertIn("leds_len=7", lines[3])
 
 
 if __name__ == "__main__":

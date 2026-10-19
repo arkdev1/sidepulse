@@ -3,10 +3,13 @@
 # workflow run summary, the device path, and the TrueNAS settings below.
 #
 # truenas reads pool health, alerts, running backups and available updates
-# through the TrueNAS API and writes the matching LED program to a shared
-# volume. It has network access but no access to the device.
+# through the TrueNAS API and writes the matching LED program to /dev/shm,
+# which the two services share through the IPC namespace: RAM only, no
+# volume, no network between them. It has network access but no device.
 # sidepulse has the device but no network: it validates that program with the
-# firmware parser and writes it to the SidePulse.
+# firmware parser, writes it to the SidePulse and answers in /dev/shm. truenas
+# touches the program every poll; if that stops for STALE_SECONDS, sidepulse
+# shows the violet "unreachable" pulse instead of a frozen last state.
 services:
   truenas:
     image: ghcr.io/arkdev1/sidepulse-hw@sha256:REPLACE_WITH_PUBLISHED_DIGEST
@@ -18,13 +21,14 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     tmpfs: [/tmp]
+    ipc: "service:sidepulse"
+    depends_on: [sidepulse]
     # Reaches the TrueNAS API on this host through the app's own bridge
     # gateway: no host networking, and the traffic never leaves the NAS.
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    volumes:
-      - program:/program
     environment:
+      SIDEPULSE_PROGRAM_FILE: "/dev/shm/LEDS.LED"
       TRUENAS_HOST: "host.docker.internal"
       TRUENAS_USERNAME: "sidepulse"
       TRUENAS_API_KEY: "REPLACE_ME"
@@ -43,12 +47,11 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     tmpfs: [/tmp]
+    ipc: shareable
     devices:
       - source: /dev/disk/by-id/usb-REPLACE_ME
         target: /dev/sidepulse
         permissions: rw
-    volumes:
-      - program:/program:ro
-
-volumes:
-  program:
+    environment:
+      SIDEPULSE_PROGRAM_FILE: "/dev/shm/LEDS.LED"
+      STALE_SECONDS: "300"

@@ -4,10 +4,10 @@ from __future__ import annotations
 import os
 import signal
 import sys
-import tempfile
 import time
 from pathlib import Path
 
+from sidepulse_hw import channel
 from sidepulse_hw.program import ProgramError, normalize, validate
 
 from .collector import (
@@ -27,6 +27,9 @@ import ssl
 from .rpc import CertificateMismatch, Client, RpcError, probe_fingerprint
 
 UNREACHABLE_AFTER = 3
+# How long to wait for sidepulse-hw's answer after a program change: it polls
+# every second, may still be in its startup pause, and takes 2s to confirm.
+ANSWER_TIMEOUT_SECONDS = 8.0
 
 
 def env(name: str, default: str = "") -> str:
@@ -74,15 +77,27 @@ def load_config() -> dict:
 def write_program(path: Path, text: str) -> None:
     """Atomic replace, so sidepulse-hw never reads half a program."""
 
-    fd, temp = tempfile.mkstemp(dir=path.parent, prefix=".LEDS.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="ascii") as handle:
-            handle.write(text)
-        os.chmod(temp, 0o644)
-        os.replace(temp, path)
-    except BaseException:
-        Path(temp).unlink(missing_ok=True)
-        raise
+    channel.replace_file(path, text)
+
+
+def report_device_answer(path: Path, program: str, timeout: float = ANSWER_TIMEOUT_SECONDS) -> str:
+    """Log what sidepulse-hw did with the program; returns the outcome."""
+
+    result = channel.await_result(path, channel.digest(program), timeout)
+    if result is None:
+        log(f"WARN  no answer from sidepulse-hw within {timeout:g}s; is the sidepulse service "
+            f"running and sharing {path.parent}?")
+        return "no-answer"
+    outcome, _, detail = result
+    if outcome == "applied":
+        log(f"INFO  device applied it ({detail})")
+    elif outcome == "unconfirmed":
+        log(f"WARN  device did not confirm it: {detail}")
+    elif outcome == "rejected":
+        log(f"ERROR device rejected the program: {detail}")
+    else:
+        log(f"ERROR device write failed: {detail}")
+    return outcome
 
 
 def stop(signum, _frame) -> None:
@@ -99,7 +114,8 @@ def main() -> int:
         return 1
     log(f"INFO  starting: {config['url']} as {config['username']}, poll {config['poll']:g}s, "
         f"updates every {config['update_every'] / 60:g} min, night {config['night'] or 'off'}, "
-        f"brightness {config['brightness']}, TZ {os.environ.get('TZ', 'UTC')}")
+        f"brightness {config['brightness']}, TZ {os.environ.get('TZ', 'UTC')}, "
+        f"program file {config['output']}")
     if not config["pin"]:
         log("WARN  TRUENAS_CERT_SHA256 not set: the certificate must be signed by a public CA")
 
@@ -154,13 +170,24 @@ def main() -> int:
             night_shows_critical=config["night_shows_critical"],
             unreachable=failures >= UNREACHABLE_AFTER,
         )
+        output: Path = config["output"]
         if (state, reason) != last_state:
+            program = config["programs"][state]
             try:
-                write_program(config["output"], config["programs"][state])
+                write_program(output, program)
+            except OSError as exc:
+                log(f"ERROR cannot write {output}: {exc}")
+            else:
                 log(f"INFO  LEDs -> {state}: {reason}")
                 last_state = (state, reason)
+                report_device_answer(output, program)
+        else:
+            # The heartbeat: an untouched file tells sidepulse-hw this
+            # process is gone, and it stops trusting the last program.
+            try:
+                channel.touch(output)
             except OSError as exc:
-                log(f"ERROR cannot write {config['output']}: {exc}")
+                log(f"ERROR cannot touch {output}: {exc}")
         time.sleep(config["poll"])
 
 
